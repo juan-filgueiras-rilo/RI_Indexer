@@ -1,4 +1,4 @@
-package reuters21578indexing;
+package es.udc.fic.ri.mri_indexer;
 
 import java.util.LinkedList;
 import java.util.List;
