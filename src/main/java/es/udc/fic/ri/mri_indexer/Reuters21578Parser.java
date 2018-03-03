@@ -9,9 +9,8 @@ public class Reuters21578Parser {
 	 * Project testlucene 3.6.0, the Reuters21578Parser class parses the
 	 * collection.
 	 */
-	public void Reuters21578Parser(){
-
-	}
+	public void Reuters21578Parser(){}
+	
 	private static final String END_BOILERPLATE_1 = "Reuter&#3;";
 	private static final String END_BOILERPLATE_2 = "REUTER&#3;";
 
@@ -91,6 +90,7 @@ public class Reuters21578Parser {
 		String topics = extract("TOPICS", text, true);
 		String title = extract("TITLE", text, true);
 		String dateline = extract("DATELINE", text, true);
+		String date = extract("DATE", text, true);
 		String body = extract("BODY", text, true);
 		if (body.endsWith(END_BOILERPLATE_1)
 				|| body.endsWith(END_BOILERPLATE_2))
@@ -101,6 +101,7 @@ public class Reuters21578Parser {
 		document.add(body);
 		document.add(topics.replaceAll("\\<D\\>", " ").replaceAll("\\<\\/D\\>",
 				""));
+		document.add(date);
 		document.add(dateline);
 		return document;
 	}
