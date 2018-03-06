@@ -9,7 +9,7 @@ public class Reuters21578Parser {
 	 * Project testlucene 3.6.0, the Reuters21578Parser class parses the
 	 * collection.
 	 */
-	public void Reuters21578Parser(){}
+	public Reuters21578Parser(){}
 	
 	private static final String END_BOILERPLATE_1 = "Reuter&#3;";
 	private static final String END_BOILERPLATE_2 = "REUTER&#3;";
