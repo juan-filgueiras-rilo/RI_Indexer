@@ -42,10 +42,10 @@ public class ReutersIndexer {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
 				+ "in INDEX_PATH that can be searched with SearchFiles";
-		//String indexPath = "";
-		String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
-		//String docsPath = "";
-		String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
+		String indexPath = "D:\\RI";
+		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
+		String docsPath = "D:\\RI\\reuters21578";
+		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
 		byte modo = 0; // 0 create ; 1 append; 2 createorappend
 		for(int i=0;i<args.length;i++) {
 			if ("-index".equals(args[i])) {
@@ -142,7 +142,8 @@ public class ReutersIndexer {
 				@Override
 				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
 					try {
-						indexDoc(writer, file, attrs.lastModifiedTime().toMillis());
+						if (file.endsWith(".sgm"))
+							indexDoc(writer, file, attrs.lastModifiedTime().toMillis());
 					} catch (IOException ignore) {
 						// don't index files that can't be read.
 					}
@@ -184,11 +185,13 @@ public class ReutersIndexer {
 			// make a new, empty document
 			Document doc = new Document();
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
+			System.out.println(parsedContent.size());
 			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
 
 				List<String> parsedDoc = iterator.next();
 				
 				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
+				System.out.println(file.toString());
 				doc.add(pathSgm);
 				
 				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.YES);
