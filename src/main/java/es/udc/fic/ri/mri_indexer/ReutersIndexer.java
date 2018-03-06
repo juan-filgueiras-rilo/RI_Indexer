@@ -142,7 +142,7 @@ public class ReutersIndexer {
 				@Override
 				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
 					try {
-						if (file.endsWith(".sgm"))
+						if (file.toString().endsWith(".sgm"))
 							indexDoc(writer, file, attrs.lastModifiedTime().toMillis());
 					} catch (IOException ignore) {
 						// don't index files that can't be read.
@@ -185,13 +185,12 @@ public class ReutersIndexer {
 			// make a new, empty document
 			Document doc = new Document();
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
-			System.out.println(parsedContent.size());
-			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
+			for (List<String> parsedDoc:parsedContent) {
+//			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
 
-				List<String> parsedDoc = iterator.next();
+//				List<String> parsedDoc = iterator.next();
 				
 				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
-				System.out.println(file.toString());
 				doc.add(pathSgm);
 				
 				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.YES);
@@ -220,16 +219,19 @@ public class ReutersIndexer {
 				
 				if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
 					// New index, so we just add the document (no old document can be there):
-					System.out.println("adding " + file);
 					writer.addDocument(doc);
 				} else {
 					// Existing index (an old copy of this document may have been indexed) so
 					// we use updateDocument instead to replace the old one matching the exact
 					// path, if present:
-					System.out.println("updating " + file);
 					writer.updateDocument(new Term("path", file.toString()), doc);
 				}
 			}
+			if (writer.getConfig().getOpenMode() == OpenMode.CREATE)
+				System.out.println("adding " + file);
+			else
+				System.out.println("updating " + file);
+				
 		} catch (ParseException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();

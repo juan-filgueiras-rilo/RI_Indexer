@@ -11,8 +11,8 @@ public class Reuters21578Parser {
 	 */
 	public Reuters21578Parser(){}
 	
-	private static final String END_BOILERPLATE_1 = "Reuter&#3;";
-	private static final String END_BOILERPLATE_2 = "REUTER&#3;";
+	private static final String END_BOILERPLATE_1 = "Reuter\n&#3;";
+	private static final String END_BOILERPLATE_2 = "REUTER\n&#3;";
 
 	// private static final String[] TOPICS = { "acq", "alum", "austdlr",
 	// "barley", "bean", "belly", "bfr", "bop", "cake", "can", "carcass",
