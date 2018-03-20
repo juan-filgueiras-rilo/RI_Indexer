@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,12 +13,11 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.DateTools;
 import org.apache.lucene.document.DateTools.Resolution;
 import org.apache.lucene.document.Document;
@@ -182,18 +180,18 @@ public class ReutersIndexer {
 	/** Indexes a single document */
 	static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
 		try (InputStream stream = Files.newInputStream(file)) {
-			// make a new, empty document
-			Document doc = new Document();
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
 			for (List<String> parsedDoc:parsedContent) {
 //			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
 
 //				List<String> parsedDoc = iterator.next();
+				// make a new, empty document
+				Document doc = new Document();
 				
 				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
 				doc.add(pathSgm);
 				
-				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.YES);
+				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
 				doc.add(hostname);
 				
 				//Thread
@@ -211,7 +209,7 @@ public class ReutersIndexer {
 				doc.add(body);
 				
 				//26-FEB-1987 15:01:01.79
-				SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMMM-yyyy HH:mm:ss.SS");
+				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);
 				Date date = dateFormat.parse(parsedDoc.get(3));
 				String dateText = DateTools.dateToString(date, Resolution.SECOND);
 				Field dateField = new StringField("date", dateText, Field.Store.YES);
