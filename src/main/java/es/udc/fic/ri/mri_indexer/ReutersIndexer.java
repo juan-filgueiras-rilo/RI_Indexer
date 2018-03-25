@@ -50,12 +50,13 @@ public class ReutersIndexer {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
 				+ "in INDEX_PATH that can be searched with SearchFiles";
-		String indexPath = "D:\\RI";
+		String indexPath = "D:\\RI\\index";
 		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
 		String docsPath = "D:\\RI\\reuters21578";
 		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
 		OpenMode modo = OpenMode.CREATE;
 		boolean multithread = false;
+		boolean addindexes = false;
 
 		for(int i=0;i<args.length;i++) {
 			switch(args[i]) {
@@ -93,6 +94,9 @@ public class ReutersIndexer {
 				case("-multithread"):
 					multithread = true;
 					break;
+				case("-addindexes"):
+					addindexes = true;
+					break;
 			}
 		}
 
@@ -118,17 +122,20 @@ public class ReutersIndexer {
 			iwc.setRAMBufferSizeMB(512.0);
 
 			IndexWriter writer = new IndexWriter(dir, iwc);
-			
 			if(multithread) {
 				
-				final int numCores = Runtime.getRuntime().availableProcessors();
-				final ExecutorService executor = Executors.newFixedThreadPool(numCores);
+				//final int numCores = Runtime.getRuntime().availableProcessors();
+				//final ExecutorService executor = Executors.newFixedThreadPool(numCores);
+				final ExecutorService executor = Executors.newCachedThreadPool();
 				
 				try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir)) {
-
+					//final ExecutorService executor = Executors.newFixedThreadPool(numDirs);
+					
 					/* We process each subfolder in a new thread. */
 					for (final Path path : directoryStream) {
 						if (Files.isDirectory(path)) {
+							Directory subDir = FSDirectory.open(Paths.get(indexPath,
+									docDir.relativize(path).toString()));
 							final Runnable worker = new WorkerThread(path, writer);
 							/*
 							 * Send the thread to the ThreadPool. It will be processed
@@ -163,7 +170,6 @@ public class ReutersIndexer {
 			// you're done adding documents to it):
 			//
 			//writer.forceMerge(1);
-
 			writer.close();
 
 			Date end = new Date();
@@ -264,7 +270,6 @@ public class ReutersIndexer {
 				System.out.println("updating " + file);
 				
 		} catch (ParseException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
