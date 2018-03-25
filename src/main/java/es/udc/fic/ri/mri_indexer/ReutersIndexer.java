@@ -4,8 +4,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -15,6 +17,9 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -31,10 +36,15 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
+/*
+ * Query parser syntax:
+ * http://lucene.apache.org/core/6_3_0/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package_description
+*/
+
 public class ReutersIndexer {
 	
 	private ReutersIndexer() {}
-
+	
 	/** Index all text files under a directory. */
 	public static void main(String[] args) {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
@@ -44,26 +54,45 @@ public class ReutersIndexer {
 		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
 		String docsPath = "D:\\RI\\reuters21578";
 		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
-		byte modo = 0; // 0 create ; 1 append; 2 createorappend
+		OpenMode modo = OpenMode.CREATE;
+		boolean multithread = false;
+
 		for(int i=0;i<args.length;i++) {
-			if ("-index".equals(args[i])) {
-				indexPath = args[i+1];
-				i++;
-			} else if ("-coll".equals(args[i])) {
-				docsPath = args[i+1];
-				i++;
-			} else if ("-openmode".equals(args[i])) {
-				switch(args[i+1]) {
-					case "create": modo=0;
+			switch(args[i]) {
+				case("-index"):
+					if (isValidPath(args[i+1])) {
+						indexPath = args[i+1];
+						i++;
 						break;
-					case "append": modo=1;
+					} else {
+						System.err.println("Wrong option -index.\n " + usage);
+						System.exit(-1);
+					}
+				case("-coll"):
+					if (isValidPath(args[i+1])) {
+						docsPath = args[i+1];
+						i++;
 						break;
-					case "create_or_append": modo=2;
-						break;
-					default: System.err.println("Wrong option -openmode. " + usage);
-						System.exit(1);
-				}
-				i++;
+					} else {
+						System.err.println("Wrong option -index.\n " + usage);
+						System.exit(-1);
+					}
+				case("-openmode"):				
+					switch(args[i+1]) {
+						case "create": modo = OpenMode.CREATE;
+							break;
+						case "append": modo = OpenMode.APPEND;
+							break;
+						case "create_or_append": modo = OpenMode.CREATE_OR_APPEND;
+							break;
+						default: System.err.println("Wrong option -openmode.\n " + usage);
+							System.exit(-1);
+					}
+					i++;
+					break;
+				case("-multithread"):
+					multithread = true;
+					break;
 			}
 		}
 
@@ -85,28 +114,55 @@ public class ReutersIndexer {
 			Directory dir = FSDirectory.open(Paths.get(indexPath));
 			Analyzer analyzer = new StandardAnalyzer();
 			IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
-
-			switch (modo) {
-				case 0: iwc.setOpenMode(OpenMode.CREATE);
-						break;
-				case 1: iwc.setOpenMode(OpenMode.APPEND);
-						break;
-				case 2: iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
-						break;
-			}
-
+			iwc.setOpenMode(modo);
 			iwc.setRAMBufferSizeMB(512.0);
 
 			IndexWriter writer = new IndexWriter(dir, iwc);
-			indexDocs(writer, docDir);
+			
+			if(multithread) {
+				
+				final int numCores = Runtime.getRuntime().availableProcessors();
+				final ExecutorService executor = Executors.newFixedThreadPool(numCores);
+				
+				try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir)) {
 
+					/* We process each subfolder in a new thread. */
+					for (final Path path : directoryStream) {
+						if (Files.isDirectory(path)) {
+							final Runnable worker = new WorkerThread(path, writer);
+							/*
+							 * Send the thread to the ThreadPool. It will be processed
+							 * eventually.
+							 */
+							executor.execute(worker);
+						}
+					}
+					/*
+					 * Close the ThreadPool; no more jobs will be accepted, but all the
+					 * previously submitted jobs will be processed.
+					 */
+					executor.shutdown();
+
+					/* Wait up to 1 hour to finish all the previously submitted jobs */
+					try {
+						executor.awaitTermination(5, TimeUnit.MINUTES);
+					} catch (final InterruptedException e) {
+						e.printStackTrace();
+						System.exit(-2);
+					}
+					System.out.println("Finished all threads");
+				}
+			} else {
+				indexDocs(writer, docDir);
+			}
+			
 			// NOTE: if you want to maximize search performance,
 			// you can optionally call forceMerge here.  This can be
 			// a terribly costly operation, so generally it's only
 			// worth it when your index is relatively static (ie
 			// you're done adding documents to it):
 			//
-			writer.forceMerge(1);
+			//writer.forceMerge(1);
 
 			writer.close();
 
@@ -153,6 +209,66 @@ public class ReutersIndexer {
 		}
 	}
 
+	/** Indexes a single document */
+	static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
+		try (InputStream stream = Files.newInputStream(file)) {
+			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
+			for (List<String> parsedDoc:parsedContent) {
+//			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
+
+//				List<String> parsedDoc = iterator.next();
+				// make a new, empty document
+				Document doc = new Document();
+				
+				Field pathSgm = new StringField("path", file.toString(), Field.Store.NO);
+				doc.add(pathSgm);
+				
+				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
+				doc.add(hostname);
+				
+				Field thread = new StringField("thread", Thread.currentThread().getName(), Field.Store.NO);
+				doc.add(thread);
+				
+				Field topics = new TextField("topics", parsedDoc.get(2), Field.Store.YES);
+				doc.add(topics);
+				
+				Field title = new TextField("title", parsedDoc.get(0), Field.Store.NO);
+				doc.add(title);
+				
+				Field dateLine = new StringField("dateline", parsedDoc.get(4), Field.Store.YES);
+				doc.add(dateLine);
+				
+				Field body = new TextField("body", parsedDoc.get(1), Field.Store.YES);
+				doc.add(body);
+				
+				//26-FEB-1987 15:01:01.79
+				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);
+				Date date = dateFormat.parse(parsedDoc.get(3));
+				String dateText = DateTools.dateToString(date, Resolution.SECOND);
+				Field dateField = new StringField("date", dateText, Field.Store.NO);
+				doc.add(dateField);
+				
+				if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
+					// New index, so we just add the document (no old document can be there):
+					writer.addDocument(doc);
+				} else {
+					// Existing index (an old copy of this document may have been indexed) so
+					// we use updateDocument instead to replace the old one matching the exact
+					// path, if present:
+					writer.updateDocument(new Term("path", file.toString()), doc);
+				}
+			}
+			if (writer.getConfig().getOpenMode() == OpenMode.CREATE)
+				System.out.println("adding " + file);
+			else
+				System.out.println("updating " + file);
+				
+		} catch (ParseException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+	
 	public static StringBuffer fileToBuffer(InputStream is) throws IOException {
 		StringBuffer buffer = new StringBuffer();
 		InputStreamReader isr = null;
@@ -176,63 +292,14 @@ public class ReutersIndexer {
 
 		return buffer;
 	}
+	
+    public static boolean isValidPath(String path) {
 
-	/** Indexes a single document */
-	static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
-		try (InputStream stream = Files.newInputStream(file)) {
-			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
-			for (List<String> parsedDoc:parsedContent) {
-//			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
-
-//				List<String> parsedDoc = iterator.next();
-				// make a new, empty document
-				Document doc = new Document();
-				
-				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
-				doc.add(pathSgm);
-				
-				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
-				doc.add(hostname);
-				
-				//Thread
-				
-				Field topics = new TextField("topics", parsedDoc.get(2), Field.Store.YES);
-				doc.add(topics);
-				
-				Field title = new TextField("title", parsedDoc.get(0), Field.Store.YES);
-				doc.add(title);
-				
-				Field dateLine = new StringField("dateline", parsedDoc.get(4), Field.Store.YES);
-				doc.add(dateLine);
-				
-				Field body = new TextField("body", parsedDoc.get(1), Field.Store.YES);
-				doc.add(body);
-				
-				//26-FEB-1987 15:01:01.79
-				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);
-				Date date = dateFormat.parse(parsedDoc.get(3));
-				String dateText = DateTools.dateToString(date, Resolution.SECOND);
-				Field dateField = new StringField("date", dateText, Field.Store.YES);
-				doc.add(dateField);
-				
-				if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
-					// New index, so we just add the document (no old document can be there):
-					writer.addDocument(doc);
-				} else {
-					// Existing index (an old copy of this document may have been indexed) so
-					// we use updateDocument instead to replace the old one matching the exact
-					// path, if present:
-					writer.updateDocument(new Term("path", file.toString()), doc);
-				}
-			}
-			if (writer.getConfig().getOpenMode() == OpenMode.CREATE)
-				System.out.println("adding " + file);
-			else
-				System.out.println("updating " + file);
-				
-		} catch (ParseException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
+        try {
+            Paths.get(path);
+        } catch (InvalidPathException | NullPointerException ex) {
+            return false;
+        }
+        return true;
+    }
 }

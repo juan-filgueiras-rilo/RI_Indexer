@@ -87,6 +87,7 @@ public class Reuters21578Parser {
 		/* Each topic inside TOPICS is identified with a tag D */
 		/* If the BODY ends with boiler plate text, this text is removed */
 
+		String reuters = extract("REUTERS", text, true);
 		String topics = extract("TOPICS", text, true);
 		String title = extract("TITLE", text, true);
 		String dateline = extract("DATELINE", text, true);
