@@ -14,6 +14,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +44,8 @@ import org.apache.lucene.store.FSDirectory;
 
 public class ReutersIndexer {
 	
+	private static final String ADDED_INDEX_DIR = "\\addedIndex";
+
 	private ReutersIndexer() {}
 	
 	/** Index all text files under a directory. */
@@ -113,6 +116,8 @@ public class ReutersIndexer {
 
 		Date start = new Date();
 		try {
+			if(multithread && addindexes)
+				indexPath = indexPath.concat(ReutersIndexer.ADDED_INDEX_DIR);
 			System.out.println("Indexing to directory '" + indexPath + "'...");
 
 			Directory dir = FSDirectory.open(Paths.get(indexPath));
@@ -120,56 +125,14 @@ public class ReutersIndexer {
 			IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 			iwc.setOpenMode(modo);
 			iwc.setRAMBufferSizeMB(512.0);
-
+			
 			IndexWriter writer = new IndexWriter(dir, iwc);
+			
 			if(multithread) {
-				
-				//final int numCores = Runtime.getRuntime().availableProcessors();
-				//final ExecutorService executor = Executors.newFixedThreadPool(numCores);
-				final ExecutorService executor = Executors.newCachedThreadPool();
-				
-				try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir)) {
-					//final ExecutorService executor = Executors.newFixedThreadPool(numDirs);
-					
-					/* We process each subfolder in a new thread. */
-					for (final Path path : directoryStream) {
-						if (Files.isDirectory(path)) {
-							Directory subDir = FSDirectory.open(Paths.get(indexPath,
-									docDir.relativize(path).toString()));
-							final Runnable worker = new WorkerThread(path, writer);
-							/*
-							 * Send the thread to the ThreadPool. It will be processed
-							 * eventually.
-							 */
-							executor.execute(worker);
-						}
-					}
-					/*
-					 * Close the ThreadPool; no more jobs will be accepted, but all the
-					 * previously submitted jobs will be processed.
-					 */
-					executor.shutdown();
-
-					/* Wait up to 1 hour to finish all the previously submitted jobs */
-					try {
-						executor.awaitTermination(5, TimeUnit.MINUTES);
-					} catch (final InterruptedException e) {
-						e.printStackTrace();
-						System.exit(-2);
-					}
-					System.out.println("Finished all threads");
-				}
-			} else {
+				startThreads(docDir, indexPath, modo, addindexes, writer);
+			}  else {
 				indexDocs(writer, docDir);
 			}
-			
-			// NOTE: if you want to maximize search performance,
-			// you can optionally call forceMerge here.  This can be
-			// a terribly costly operation, so generally it's only
-			// worth it when your index is relatively static (ie
-			// you're done adding documents to it):
-			//
-			//writer.forceMerge(1);
 			writer.close();
 
 			Date end = new Date();
@@ -181,6 +144,65 @@ public class ReutersIndexer {
 		}
 	}
 
+	private static void startThreads(final Path docDir, String indexPath, OpenMode modo, boolean addindexes, IndexWriter writer) {
+		//final int numCores = Runtime.getRuntime().availableProcessors();
+		//final ExecutorService executor = Executors.newFixedThreadPool(numCores);
+		final ExecutorService executor = Executors.newCachedThreadPool();
+		List<Directory> dirs = new ArrayList<>();
+		if(addindexes)
+				indexPath = indexPath.replace(ReutersIndexer.ADDED_INDEX_DIR, "\\");
+		try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir)) {
+			//final ExecutorService executor = Executors.newFixedThreadPool(numDirs);
+			
+			/* We process each subfolder in a new thread. */
+			for (final Path subDocDir : directoryStream) {
+				if (Files.isDirectory(subDocDir)) {
+					final Runnable worker;
+					if(addindexes) {
+						Directory subIndexPath = FSDirectory.open(Paths.get(indexPath,
+							docDir.relativize(subDocDir).toString()));
+						dirs.add(subIndexPath);
+						worker = new WorkerThread(subDocDir, subIndexPath, modo);
+					}
+					else 
+						worker = new WorkerThread(subDocDir, writer);
+					/*
+					 * Send the thread to the ThreadPool. It will be processed
+					 * eventually.
+					 */
+					executor.execute(worker);
+				}
+			}
+			/*
+			 * Close the ThreadPool; no more jobs will be accepted, but all the
+			 * previously submitted jobs will be processed.
+			 */
+			executor.shutdown();
+
+			/* Wait up to 1 hour to finish all the previously submitted jobs */
+			try {
+				executor.awaitTermination(5, TimeUnit.MINUTES);
+			} catch (final InterruptedException e) {
+				e.printStackTrace();
+				System.exit(-2);
+			}
+			System.out.println("Finished all threads");
+			if (addindexes) {
+				for (Directory d: dirs)
+					writer.addIndexes(d);
+			}
+			// NOTE: if you want to maximize search performance,
+			// you can optionally call forceMerge here.  This can be
+			// a terribly costly operation, so generally it's only
+			// worth it when your index is relatively static (ie
+			// you're done adding documents to it):
+			//
+			writer.forceMerge(1);
+		} catch (IOException e) {
+			System.out.println(" caught a " + e.getClass() +
+					"\n with message: " + e.getMessage());
+		}
+	}
 	/**
 	 * Indexes the given file using the given writer, or if a directory is given,
 	 * recurses over files and directories found under the given directory.
