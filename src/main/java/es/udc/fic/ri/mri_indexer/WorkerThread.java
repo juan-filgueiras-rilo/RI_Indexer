@@ -1,7 +1,7 @@
 package es.udc.fic.ri.mri_indexer;
 
-import java.nio.file.Path;
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -12,20 +12,25 @@ import org.apache.lucene.store.Directory;
 
 public class WorkerThread implements Runnable {
 	
+	//Creación índice
 	private final Path subDocDir;
-	private IndexWriter writer;
-	private final boolean closeable;
+	private Directory subIndexPath;
+	private IndexWriter mainWriter;
+	private IndexWriter threadWriter;
+	private final boolean hasThreadWriter;
 	
-	public WorkerThread(final Path path, final Directory subIndexPath, OpenMode modo) {
+	public WorkerThread(final Path path, final Directory subIndexPath, OpenMode modo, IndexWriter writer) {
 		
 		this.subDocDir = path;
-		this.closeable = true;
+		this.hasThreadWriter = true;
+		this.mainWriter = writer;
+		this.subIndexPath = subIndexPath;
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(modo);
 		iwc.setRAMBufferSizeMB(512.0);
 		try {
-			this.writer = new IndexWriter(subIndexPath, iwc);
+			this.threadWriter = new IndexWriter(subIndexPath, iwc);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -33,9 +38,10 @@ public class WorkerThread implements Runnable {
 
 	public WorkerThread(final Path path, IndexWriter writer) {
 		
-		this.closeable = false;
+		this.hasThreadWriter = false;
 		this.subDocDir = path;
-		this.writer = writer;
+		this.mainWriter = writer;
+		this.threadWriter = null;
 	}
 	
 	@Override
@@ -43,9 +49,17 @@ public class WorkerThread implements Runnable {
 		System.out.println(String.format("I am the thread '%s' and I am responsible for folder '%s'",
 				Thread.currentThread().getName(), subDocDir));
 		try {
-			ReutersIndexer.indexDocs(this.writer, this.subDocDir);
-			if(closeable) {
-				this.writer.close();
+			IndexWriter currentWriter;
+			if(hasThreadWriter) {
+				currentWriter = this.threadWriter;
+			} else {
+				currentWriter = this.mainWriter;
+			}
+			ReutersIndexer.indexDocs(currentWriter, this.subDocDir);
+			
+			if(hasThreadWriter) {
+				this.threadWriter.close();
+				this.mainWriter.addIndexes(this.subIndexPath);
 			}
 		} catch (IOException e) {
 			e.printStackTrace();

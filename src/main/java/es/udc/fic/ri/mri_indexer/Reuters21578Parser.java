@@ -11,6 +11,7 @@ public class Reuters21578Parser {
 	 */
 	public Reuters21578Parser(){}
 	
+	//boiler modificado
 	private static final String END_BOILERPLATE_1 = "Reuter\n&#3;";
 	private static final String END_BOILERPLATE_2 = "REUTER\n&#3;";
 
@@ -87,7 +88,7 @@ public class Reuters21578Parser {
 		/* Each topic inside TOPICS is identified with a tag D */
 		/* If the BODY ends with boiler plate text, this text is removed */
 
-		String reuters = extract("REUTERS", text, true);
+//		String reuters = extract("REUTERS", text, true);
 		String topics = extract("TOPICS", text, true);
 		String title = extract("TITLE", text, true);
 		String dateline = extract("DATELINE", text, true);
