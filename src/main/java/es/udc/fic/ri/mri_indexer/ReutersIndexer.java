@@ -45,7 +45,17 @@ import org.apache.lucene.store.FSDirectory;
 public class ReutersIndexer {
 	
 	private static final String ADDED_INDEX_DIR = "\\addedIndex";
-
+	private enum IndexOperation {
+		NONE,
+		CREATE,
+		PROCESS;
+	}
+	private static IndexOperation OP = IndexOperation.NONE;
+	private static void setOpIfNone(IndexOperation op) {
+		if(ReutersIndexer.OP.equals(IndexOperation.NONE)) {
+			ReutersIndexer.OP = op;
+		}
+	}
 	private ReutersIndexer() {}
 	
 	/** Index all text files under a directory. */
@@ -53,6 +63,7 @@ public class ReutersIndexer {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
 				+ "in INDEX_PATH that can be searched with SearchFiles";
+		
 		String indexPath = "D:\\RI\\index";
 		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
 		String docsPath = "D:\\RI\\reuters21578";
@@ -61,9 +72,14 @@ public class ReutersIndexer {
 		boolean multithread = false;
 		boolean addindexes = false;
 
+		String term;
+		int bestN = 10;
+		
 		for(int i=0;i<args.length;i++) {
 			switch(args[i]) {
+			//Creacion indice
 			case("-index"):
+				setOpIfNone(IndexOperation.CREATE);
 				if (isValidPath(args[i+1])) {
 					indexPath = args[i+1];
 					i++;
@@ -73,6 +89,7 @@ public class ReutersIndexer {
 					System.exit(-1);
 				}
 			case("-coll"):
+				setOpIfNone(IndexOperation.CREATE);
 				if (isValidPath(args[i+1])) {
 					docsPath = args[i+1];
 					i++;
@@ -81,7 +98,8 @@ public class ReutersIndexer {
 					System.err.println("Wrong option -coll.\n " + usage);
 					System.exit(-1);
 				}
-			case("-openmode"):				
+			case("-openmode"):	
+				setOpIfNone(IndexOperation.CREATE);
 				switch(args[i+1]) {
 				case "create": modo = OpenMode.CREATE;
 					break;
@@ -95,11 +113,56 @@ public class ReutersIndexer {
 				i++;
 				break;
 			case("-multithread"):
+				setOpIfNone(IndexOperation.CREATE);
 				multithread = true;
 				break;
 			case("-addindexes"):
+				setOpIfNone(IndexOperation.CREATE);
 				addindexes = true;
 				break;
+			//Procesado indice
+			case("-indexin"):
+				setOpIfNone(IndexOperation.PROCESS);
+				if (isValidPath(args[i+1])) {
+					indexPath = args[i+1];
+					i++;
+					break;
+				} else {
+					System.err.println("Wrong option -index.\n " + usage);
+					System.exit(-1);
+				}
+			case("-best_idfterms"):
+				setOpIfNone(IndexOperation.PROCESS);
+				if(args[i+1] != null) {
+					term = args[i+1];
+					if(args[i+2] != null) {
+						try {
+							bestN = Integer.parseInt(args[i+2]);
+						} catch (NumberFormatException e) {
+							System.err.println("Error while parsing the number of best n_terms\n " + usage);
+							System.exit(-1);
+						}
+					}
+					i+=2;
+					break;
+				} else {
+					System.err.println("Wrong option -best_idfterms.\n " + usage);
+					System.exit(-1);
+				}
+//			case("-tfpos"):
+//				setOpIfNone(IndexOperation.PROCESS);
+//				if(args[i+1] != null) {
+//					term = args[i+1];
+//					if(args[i+2] != null) {
+//						;
+//					}
+//					i+=2;
+//					break;
+//				} else {
+//					System.err.println("Wrong option -tfpos.\n " + usage);
+//					System.exit(-1);
+//				}
+//				break;
 			}
 		}
 
@@ -116,31 +179,35 @@ public class ReutersIndexer {
 
 		Date start = new Date();
 		try {
-			Date end = null;
-			//Añado ruta de addIndexes para poder crear el writer principal antes de trabajar en las subcarpetas de mismo nivel.
-			if(multithread && addindexes)
-				indexPath = indexPath.concat(ReutersIndexer.ADDED_INDEX_DIR);
-			System.out.println("Indexing to directory '" + indexPath + "'...");
-
-			Directory dir = FSDirectory.open(Paths.get(indexPath));
-			Analyzer analyzer = new StandardAnalyzer();
-			IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
-			iwc.setOpenMode(modo);
-			iwc.setRAMBufferSizeMB(512.0);
-			
-			IndexWriter writer = new IndexWriter(dir, iwc);
-			
-			if(multithread) {
-				end = startThreads(docDir, indexPath, modo, addindexes, writer);
-			}  else {
-				indexDocs(writer, docDir);
+			if(ReutersIndexer.OP.equals(IndexOperation.CREATE)) {
+				Date end = null;
+				//Añado ruta de addIndexes para poder crear el writer principal antes de trabajar en las subcarpetas de mismo nivel.
+				if(multithread && addindexes)
+					indexPath = indexPath.concat(ReutersIndexer.ADDED_INDEX_DIR);
+				System.out.println("Indexing to directory '" + indexPath + "'...");
+	
+				Directory dir = FSDirectory.open(Paths.get(indexPath));
+				Analyzer analyzer = new StandardAnalyzer();
+				IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+				iwc.setOpenMode(modo);
+				iwc.setRAMBufferSizeMB(512.0);
+				
+				IndexWriter writer = new IndexWriter(dir, iwc);
+				
+				if(multithread) {
+					end = startThreads(docDir, indexPath, modo, addindexes, writer);
+				}  else {
+					indexDocs(writer, docDir);
+				}
+				writer.close();
+	
+				if(end == null) {
+					end = new Date();
+				}
+				System.out.println(end.getTime() - start.getTime() + " total milliseconds");
+			} else if(ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
+				
 			}
-			writer.close();
-
-			if(end == null) {
-				end = new Date();
-			}
-			System.out.println(end.getTime() - start.getTime() + " total milliseconds");
 
 		} catch (IOException e) {
 			System.out.println(" caught a " + e.getClass() +
