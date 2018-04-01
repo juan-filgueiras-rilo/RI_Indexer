@@ -16,8 +16,14 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -30,13 +36,26 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.Fields;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
+import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
-
+import org.apache.lucene.search.CollectionStatistics;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.PostingsEnum;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.index.Terms;
+import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.similarities.TFIDFSimilarity;
+import org.apache.lucene.search.similarities.ClassicSimilarity;
 /*
  * Query parser syntax:
  * http://lucene.apache.org/core/6_3_0/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package_description
@@ -56,6 +75,17 @@ public class ReutersIndexer {
 			ReutersIndexer.OP = op;
 		}
 	}
+    public static <K, V extends Comparable<? super V>> Map<K, V> sortByValue(Map<K, V> map) {
+        List<Entry<K, V>> list = new ArrayList<>(map.entrySet());
+        list.sort((o1, o2) -> o1.getValue().compareTo(o2.getValue()));
+
+        Map<K, V> result = new LinkedHashMap<>();
+        for (Entry<K, V> entry : list) {
+            result.put(entry.getKey(), entry.getValue());
+        }
+
+        return result;
+    }
 	private ReutersIndexer() {}
 	
 	/** Index all text files under a directory. */
@@ -72,7 +102,8 @@ public class ReutersIndexer {
 		boolean multithread = false;
 		boolean addindexes = false;
 
-		String term;
+		String termName = "said";
+		String fieldName = "body";
 		int bestN = 10;
 		
 		for(int i=0;i<args.length;i++) {
@@ -80,7 +111,7 @@ public class ReutersIndexer {
 			//Creacion indice
 			case("-index"):
 				setOpIfNone(IndexOperation.CREATE);
-				if (isValidPath(args[i+1])) {
+				if (args.length-1 >= i+1 && isValidPath(args[i+1])) {
 					indexPath = args[i+1];
 					i++;
 					break;
@@ -90,7 +121,7 @@ public class ReutersIndexer {
 				}
 			case("-coll"):
 				setOpIfNone(IndexOperation.CREATE);
-				if (isValidPath(args[i+1])) {
+				if (args.length-1 >= i+1 && isValidPath(args[i+1])) {
 					docsPath = args[i+1];
 					i++;
 					break;
@@ -100,18 +131,23 @@ public class ReutersIndexer {
 				}
 			case("-openmode"):	
 				setOpIfNone(IndexOperation.CREATE);
-				switch(args[i+1]) {
-				case "create": modo = OpenMode.CREATE;
+				if(args.length-1 >= i+1) {
+					switch(args[i+1]) {
+					case "create": modo = OpenMode.CREATE;
+						break;
+					case "append": modo = OpenMode.APPEND;
+						break;
+					case "create_or_append": modo = OpenMode.CREATE_OR_APPEND;
+						break;
+					default: System.err.println("Wrong option -openmode.\n " + usage);
+						System.exit(-1);
+					}
+					i++;
 					break;
-				case "append": modo = OpenMode.APPEND;
-					break;
-				case "create_or_append": modo = OpenMode.CREATE_OR_APPEND;
-					break;
-				default: System.err.println("Wrong option -openmode.\n " + usage);
+				} else {
+					System.err.println("Wrong option -openmode.\n " + usage);
 					System.exit(-1);
 				}
-				i++;
-				break;
 			case("-multithread"):
 				setOpIfNone(IndexOperation.CREATE);
 				multithread = true;
@@ -123,19 +159,19 @@ public class ReutersIndexer {
 			//Procesado indice
 			case("-indexin"):
 				setOpIfNone(IndexOperation.PROCESS);
-				if (isValidPath(args[i+1])) {
+				if (args.length-1 >= i+1 && isValidPath(args[i+1])) {
 					indexPath = args[i+1];
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -index.\n " + usage);
+					System.err.println("Wrong option -indexin.\n " + usage);
 					System.exit(-1);
 				}
 			case("-best_idfterms"):
 				setOpIfNone(IndexOperation.PROCESS);
-				if(args[i+1] != null) {
-					term = args[i+1];
-					if(args[i+2] != null) {
+				if(args.length-1 >= i+1) {
+					fieldName = args[i+1];
+					if(args.length-1 >= i+2) {
 						try {
 							bestN = Integer.parseInt(args[i+2]);
 						} catch (NumberFormatException e) {
@@ -149,27 +185,22 @@ public class ReutersIndexer {
 					System.err.println("Wrong option -best_idfterms.\n " + usage);
 					System.exit(-1);
 				}
-//			case("-tfpos"):
-//				setOpIfNone(IndexOperation.PROCESS);
-//				if(args[i+1] != null) {
-//					term = args[i+1];
-//					if(args[i+2] != null) {
-//						;
-//					}
-//					i+=2;
-//					break;
-//				} else {
-//					System.err.println("Wrong option -tfpos.\n " + usage);
-//					System.exit(-1);
-//				}
-//				break;
+			case("-tfpos"):
+				setOpIfNone(IndexOperation.PROCESS);
+				if(args.length-1 >= i+1) {
+					fieldName = args[i+1];
+					if(args.length-1 >= i+2) {
+						termName = args[i+2];
+					}
+					i+=2;
+					break;
+				} else {
+					System.err.println("Wrong option -tfpos.\n " + usage);
+					System.exit(-1);
+				}
 			}
 		}
 
-		if (docsPath == null) {
-			System.err.println("Usage: " + usage);
-			System.exit(1);
-		}
 
 		final Path docDir = Paths.get(docsPath);
 		if (!Files.isReadable(docDir)) {
@@ -205,10 +236,60 @@ public class ReutersIndexer {
 					end = new Date();
 				}
 				System.out.println(end.getTime() - start.getTime() + " total milliseconds");
-			} else if(ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
-				
-			}
+			} else if (ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
+				try {
+					Directory dir;
+					DirectoryReader indexReader;
+					dir = FSDirectory.open(Paths.get(indexPath));
+					indexReader = DirectoryReader.open(dir);
+					// best_idfterms
+					int docCount = indexReader.numDocs();
+					TFIDFSimilarity similarity = new ClassicSimilarity();
+					System.out.println("Size of  indexReader.leaves() = " + indexReader.leaves().size());
+					for (final LeafReaderContext leaf : indexReader.leaves()) {
+						// Print leaf number (starting from zero)
+						System.out.println("We are in the leaf number " + leaf.ord);
 
+						// Create an AtomicReader for each leaf
+						// (using, again, Java 7 try-with-resources syntax)
+						try (LeafReader leafReader = leaf.reader()) {
+							
+							// Get the fields contained in the current segment/leaf
+							final Fields fields = leafReader.fields();
+							System.out.println(
+									"Numero de campos devuelto por leafReader.fields() = " + fields.size());
+							for (final String field : fields) {
+								if(field.equals(fieldName)) {
+									System.out.println("Field = " + field);
+									final Terms terms = fields.terms(field);
+									final TermsEnum termsEnum = terms.iterator();
+									Map<String, Double> termList = new LinkedHashMap<>();
+									while ((termsEnum.next() != null)) {
+										final String tt = termsEnum.term().utf8ToString();
+										final long docFreq = termsEnum.docFreq();
+										final double idf = similarity.idf(docFreq, docCount);
+										termList.put(tt, idf);
+									}
+									termList = sortByValue(termList);
+									System.out.println(docCount);
+									Set<Entry<String, Double>> setList = termList.entrySet();
+									for (Entry<String, Double> bestTerm : setList) {
+										if (bestN == 0)
+											break;
+	
+										System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
+										bestN--;
+									}
+								}
+							}
+						}
+					}
+				} catch (CorruptIndexException e1) {
+					System.err.println("Graceful message: exception " + e1);
+					e1.printStackTrace();
+				}
+
+			}
 		} catch (IOException e) {
 			System.out.println(" caught a " + e.getClass() +
 					"\n with message: " + e.getMessage());
@@ -404,4 +485,5 @@ public class ReutersIndexer {
         }
         return true;
     }
+   
 }
