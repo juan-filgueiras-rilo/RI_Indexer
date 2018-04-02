@@ -270,7 +270,6 @@ public class ReutersIndexer {
 	private static void createTfPos(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
-		BytesRef seekedTerm = new BytesRef(termName);
 		Term term = new Term(termName);
 		int docID;
 		
@@ -287,12 +286,12 @@ public class ReutersIndexer {
 					int freq = postings.freq();
 					System.out.println(postings.freq());
 					//Posiciones
-					int i = 0;
-					while(i < freq) {
-						System.out.println(postings.getPayload());
-						postings.nextPosition();
-						i++;
-					}
+//					int i = 0;
+//					while(i < freq) {
+//						System.out.println(doc.getField(fieldName).);
+//						postings.nextPosition();
+//						i++;
+//					}
 					//df termino
 					
 				}
@@ -476,7 +475,7 @@ public class ReutersIndexer {
 				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);
 				Date date = dateFormat.parse(parsedDoc.get(3));
 				String dateText = DateTools.dateToString(date, Resolution.SECOND);
-				Field dateField = new StringField("date", dateText, Field.Store.NO);
+				Field dateField = new StringField("date", dateText, Field.Store.YES);
 				doc.add(dateField);
 				
 				if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
