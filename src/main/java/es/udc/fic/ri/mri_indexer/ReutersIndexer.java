@@ -75,6 +75,11 @@ public class ReutersIndexer {
 		CREATE,
 		PROCESS;
 	}
+	private enum Ord {
+		ALF,
+		TF_DEC,
+		DF_DEC;
+	}
 	private static IndexOperation OP = IndexOperation.NONE;
 	private static void setOpIfNone(IndexOperation op) {
 		if(ReutersIndexer.OP.equals(IndexOperation.NONE)) {
@@ -110,9 +115,12 @@ public class ReutersIndexer {
 
 		boolean bestIdfTerms = false;
 		boolean tfPos = false;
+		boolean termstfpos1 = false;
 		String termName = "said";
 		String fieldName = "body";
 		int bestN = 10;
+		int docID = 0;
+		Ord ord = Ord.ALF;
 		
 		for(int i=0;i<args.length;i++) {
 			switch(args[i]) {
@@ -208,6 +216,40 @@ public class ReutersIndexer {
 					System.err.println("Wrong option -tfpos.\n " + usage);
 					System.exit(-1);
 				}
+			case("-termstfpos1"):
+				setOpIfNone(IndexOperation.PROCESS);
+				termstfpos1 = true;
+				if(args.length-1 >= i+1) {
+					try {
+						docID = Integer.parseInt(args[i+1]);
+					} catch (NumberFormatException e) {
+						System.err.println("Error while parsing the given Lucene docID\n " + usage);
+						System.exit(-1);
+					}
+					if(args.length-1 >= i+2) {
+						fieldName = args[i+2];
+					}
+					if(args.length-1 >= i+3) {
+						switch(Integer.parseInt(args[i+3])){
+						case(0):
+							ord = Ord.ALF;
+							break;
+						case(1):
+							ord = Ord.TF_DEC;
+							break;
+						case(2):
+							ord = Ord.DF_DEC;
+							break;
+						default: System.err.println("Wrong option -termstfpos1 <ord>.\n " + usage);
+						System.exit(-1);
+						}
+					}
+					i+=3;
+					break;
+				} else {
+					System.err.println("Wrong option -termstfpos1.\n " + usage);
+					System.exit(-1);
+				}
 			}
 		}
 
@@ -256,7 +298,10 @@ public class ReutersIndexer {
 						calculateBestIdfTerms(fieldName, bestN, indexReader);
 					}
 					if(tfPos) {
-						createTfPos(fieldName, termName, indexReader);
+						createTfPosList(fieldName, termName, indexReader);
+					}
+					if(termstfpos1) {
+						createTermTfPosList(docID, fieldName, indexReader);
 					}
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -269,7 +314,58 @@ public class ReutersIndexer {
 					"\n with message: " + e.getMessage());
 		}
 	}
-	private static void createTfPos(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
+	
+	private static void createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
+		
+		Document doc = null;
+		Fields fields = null;
+		IndexableField docField = null;
+		IndexableField path = null;
+		
+		for (final LeafReaderContext leaf : indexReader.leaves()) {
+			
+			try (LeafReader leafReader = leaf.reader()) {
+				
+				doc = leafReader.document(docID);
+				docField = doc.getField(fieldName);
+				path = doc.getField("path");
+				fields = leafReader.fields();
+				System.out.println("Field = " + fieldName);
+				final Terms terms = fields.terms(fieldName);
+				final TermsEnum termsEnum = terms.iterator();
+				
+				while ((termsEnum.next() != null)) {
+					final String tt = termsEnum.term().utf8ToString();
+					//Fix this
+					if(docField.stringValue().contains(tt)) {
+						
+						System.out.println("Term: " + tt + " at docID: " + docID);
+						System.out.println("Path: " + path.stringValue());
+						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
+						int whereDoc;
+						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+							if(whereDoc == docID) {
+								System.out.println("ddd");
+								break;
+							}
+							postings.nextDoc();
+						}
+						System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
+						System.out.print("Term at positions: ");
+						for (int i=postings.freq(); i>0; i--) {
+							int pos = postings.nextPosition();
+							System.out.print(pos + " ");
+						}
+						System.out.println("\n");
+						System.out.println("Term DocFrequency: " + termsEnum.docFreq());
+						System.out.println("---------------------------------------------");
+					}
+				}		
+			}
+		}
+	}
+	
+	private static void createTfPosList(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
 		Term term = new Term(fieldName, termName);
@@ -315,35 +411,31 @@ public class ReutersIndexer {
 			// Create an AtomicReader for each leaf
 			// (using, again, Java 7 try-with-resources syntax)
 			try (LeafReader leafReader = leaf.reader()) {
-				
-				// Get the fields contained in the current segment/leaf
-				final Fields fields = leafReader.fields();
-				System.out.println(
-						"Numero de campos devuelto por leafReader.fields() = " + fields.size());
-				for (final String field : fields) {
-					if(field.equals(fieldName)) {
-						System.out.println("Field = " + field);
-						final Terms terms = fields.terms(field);
-						final TermsEnum termsEnum = terms.iterator();
-						Map<String, Float> termList = new LinkedHashMap<>();
-						while ((termsEnum.next() != null)) {
-							final String tt = termsEnum.term().utf8ToString();
-							final long docFreq = termsEnum.docFreq();
-							final float idf = similarity.idf(docFreq, docCount);
-							termList.put(tt, idf);
-						}
-						termList = sortByValue(termList);
-						System.out.println(docCount);
-						Set<Entry<String, Float>> setList = termList.entrySet();
-						for (Entry<String, Float> bestTerm : setList) {
-							if (bestN == 0)
-								break;
+			
+			// Get the fields contained in the current segment/leaf
+			final Fields fields = leafReader.fields();
+			System.out.println(
+					"Numero de campos devuelto por leafReader.fields() = " + fields.size());
+			System.out.println("Field = " + fieldName);
+			final Terms terms = fields.terms(fieldName);
+			final TermsEnum termsEnum = terms.iterator();
+			Map<String, Float> termList = new LinkedHashMap<>();
+			while ((termsEnum.next() != null)) {
+				final String tt = termsEnum.term().utf8ToString();
+				final long docFreq = termsEnum.docFreq();
+				final float idf = similarity.idf(docFreq, docCount);
+				termList.put(tt, idf);
+			}
+			termList = sortByValue(termList);
+			System.out.println(docCount);
+			Set<Entry<String, Float>> setList = termList.entrySet();
+			for (Entry<String, Float> bestTerm : setList) {
+				if (bestN == 0)
+					break;
 
-							System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
-							bestN--;
-						}
+				System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
+				bestN--;
 					}
-				}
 			} catch (IOException e) {
 				throw e;
 			}
