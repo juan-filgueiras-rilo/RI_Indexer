@@ -336,8 +336,9 @@ public class ReutersIndexer {
 				
 				while ((termsEnum.next() != null)) {
 					final String tt = termsEnum.term().utf8ToString();
-					//TODO  FIX THIS
-					if(docField.stringValue().contains(tt)) {
+					//TODO  FIX THIS, CHANGE CONTAINS
+					final String content = docField.stringValue().replaceAll("\n , \t .", " ");
+					if(content.contains(" " + tt + " ")) {
 						
 						System.out.println("Term: " + tt + " at docID: " + docID);
 						System.out.println("Path: " + path.stringValue());
@@ -370,7 +371,6 @@ public class ReutersIndexer {
 		Document doc = null;
 		Term term = new Term(fieldName, termName);
 		int docID;
-		int docFreq = 0;
 		
 		for (final LeafReaderContext leaf : indexReader.leaves()) {
 			
@@ -392,9 +392,8 @@ public class ReutersIndexer {
 					}
 					System.out.println("\n");
 					//df termino
-					docFreq++;
 				}
-				System.out.println("Total DocFreq of term '" + termName + "': " + docFreq);
+				System.out.println("Total DocFreq of term '" + termName + "': " + leafReader.docFreq(term));
 			}
 		}
 	}
