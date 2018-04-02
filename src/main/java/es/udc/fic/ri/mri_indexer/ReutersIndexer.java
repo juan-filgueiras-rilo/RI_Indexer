@@ -50,12 +50,14 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.search.CollectionStatistics;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.similarities.TFIDFSimilarity;
 import org.apache.lucene.search.similarities.ClassicSimilarity;
 /*
@@ -268,29 +270,33 @@ public class ReutersIndexer {
 	private static void createTfPos(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
-		Set<String> fieldsToLoad =  new HashSet<>();
 		BytesRef seekedTerm = new BytesRef(termName);
-		fieldsToLoad.add(fieldName);
-		fieldsToLoad.add("path");
-		for (int docID = 0; docID < indexReader.maxDoc(); docID++) {
+		Term term = new Term(termName);
+		int docID;
+		
+		for (final LeafReaderContext leaf : indexReader.leaves()) {
 			
-			try {
-				doc = indexReader.document(docID,fieldsToLoad);
-				IndexableField field = doc.getField(fieldName);
-				IndexableField path = doc.getField("path");
-				if (field == null) {
-					System.err.println("Error: while opening field: <" + fieldName + ">. Not a stored field.");
-					System.exit(-1);
+			try (LeafReader leafReader = leaf.reader()) {
+				
+				final PostingsEnum postings = leafReader.postings(term);
+
+				while((docID = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+					doc = leafReader.document(docID);
+					System.out.println(postings.docID());
+					System.out.println(doc.getField("path").toString());
+					int freq = postings.freq();
+					System.out.println(postings.freq());
+					//Posiciones
+					int i = 0;
+					while(i < freq) {
+						System.out.println(postings.getPayload());
+						postings.nextPosition();
+						i++;
+					}
+					//df termino
+					
 				}
-				System.out.println(docID);
-				System.out.println(path.stringValue());
-				
-				
-			} catch (CorruptIndexException e) {
-				throw e;
-			} catch (IOException e) {
-				throw e;
-			}			
+			}
 		}
 	}
 	
