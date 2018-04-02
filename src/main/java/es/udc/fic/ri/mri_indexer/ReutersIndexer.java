@@ -35,11 +35,13 @@ import org.apache.lucene.document.DateTools;
 import org.apache.lucene.document.DateTools.Resolution;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.Fields;
+import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -270,31 +272,33 @@ public class ReutersIndexer {
 	private static void createTfPos(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
-		Term term = new Term(termName);
+		Term term = new Term(fieldName, termName);
 		int docID;
+		int docFreq = 0;
 		
 		for (final LeafReaderContext leaf : indexReader.leaves()) {
 			
 			try (LeafReader leafReader = leaf.reader()) {
 				
-				final PostingsEnum postings = leafReader.postings(term);
+				final PostingsEnum postings = leafReader.postings(term, PostingsEnum.ALL);
 
 				while((docID = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
 					doc = leafReader.document(docID);
-					System.out.println(postings.docID());
-					System.out.println(doc.getField("path").toString());
+					System.out.println("Document ID: " + postings.docID());
+					System.out.println("Indexed from: " + doc.getField("path").stringValue());
 					int freq = postings.freq();
-					System.out.println(postings.freq());
+					System.out.println("Term Frequency: " + freq);
 					//Posiciones
-//					int i = 0;
-//					while(i < freq) {
-//						System.out.println(doc.getField(fieldName).);
-//						postings.nextPosition();
-//						i++;
-//					}
+					System.out.print("Term at positions: ");
+					for (int i=freq; i>0; i--) {
+						int pos = postings.nextPosition();
+						System.out.print(pos + " ");
+					}
+					System.out.println("\n");
 					//df termino
-					
+					docFreq++;
 				}
+				System.out.println("Total DocFreq of term '" + termName + "': " + docFreq);
 			}
 		}
 	}
@@ -441,6 +445,14 @@ public class ReutersIndexer {
 
 	/** Indexes a single document */
 	static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
+		FieldType t = new FieldType();
+		t.setTokenized(true);
+		t.setStored(true);
+		t.setStoreTermVectors(true);
+		t.setStoreTermVectorOffsets(true);
+		t.setStoreTermVectorPositions(true);
+		t.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+		t.freeze();
 		try (InputStream stream = Files.newInputStream(file)) {
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
 			for (List<String> parsedDoc:parsedContent) {
@@ -468,7 +480,7 @@ public class ReutersIndexer {
 				Field dateLine = new StringField("dateline", parsedDoc.get(4), Field.Store.YES);
 				doc.add(dateLine);
 				
-				Field body = new TextField("body", parsedDoc.get(1), Field.Store.YES);
+				Field body = new Field("body", parsedDoc.get(1), t);
 				doc.add(body);
 				
 				//26-FEB-1987 15:01:01.79
