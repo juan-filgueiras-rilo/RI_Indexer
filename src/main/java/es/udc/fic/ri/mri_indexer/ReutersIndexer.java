@@ -253,16 +253,14 @@ public class ReutersIndexer {
 			}
 		}
 
-
-		final Path docDir = Paths.get(docsPath);
-		if (!Files.isReadable(docDir)) {
-			System.out.println("Document directory '" +docDir.toAbsolutePath()+ "' does not exist or is not readable, please check the path");
-			System.exit(1);
-		}
-
 		Date start = new Date();
 		try {
 			if(ReutersIndexer.OP.equals(IndexOperation.CREATE)) {
+				final Path docDir = Paths.get(docsPath);
+				if (!Files.isReadable(docDir)) {
+					System.out.println("Document directory '" +docDir.toAbsolutePath()+ "' does not exist or is not readable, please check the path");
+					System.exit(1);
+				}
 				Date end = null;
 				//Añado ruta de addIndexes para poder crear el writer principal antes de trabajar en las subcarpetas de mismo nivel.
 				if(multithread && addindexes)
@@ -318,7 +316,6 @@ public class ReutersIndexer {
 	private static void createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
-		Fields fields = null;
 		IndexableField docField = null;
 		IndexableField path = null;
 		
@@ -329,39 +326,44 @@ public class ReutersIndexer {
 				doc = leafReader.document(docID);
 				docField = doc.getField(fieldName);
 				path = doc.getField("path");
-				fields = leafReader.fields();
 				System.out.println("Field = " + fieldName);
-				final Terms terms = fields.terms(fieldName);
-				final TermsEnum termsEnum = terms.iterator();
-				
-				while ((termsEnum.next() != null)) {
-					final String tt = termsEnum.term().utf8ToString();
-					//TODO  FIX THIS, CHANGE CONTAINS
-					final String content = docField.stringValue().replaceAll("\n , \t .", " ");
-					if(content.contains(" " + tt + " ")) {
-						
-						System.out.println("Term: " + tt + " at docID: " + docID);
-						System.out.println("Path: " + path.stringValue());
-						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
-						int whereDoc;
-						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-							if(whereDoc == docID) {
-								System.out.println("ddd");
-								break;
-							}
-							postings.nextDoc();
-						}
-						System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
-						System.out.print("Term at positions: ");
-						for (int i=postings.freq(); i>0; i--) {
-							int pos = postings.nextPosition();
-							System.out.print(pos + " ");
-						}
-						System.out.println("\n");
-						System.out.println("Term DocFrequency: " + termsEnum.docFreq());
-						System.out.println("---------------------------------------------");
+				String[] docTerms = docField.stringValue().split(" ");
+				for (String docTerm: docTerms) {
+					if(docTerm.endsWith(".") || docTerm.endsWith(",")) {
+						docTerm = docTerm.substring(0 , docTerm.length()-1);
 					}
-				}		
+					
+				}
+				final Terms terms = leafReader.fields().terms(fieldName);
+				final TermsEnum termsEnum = terms.iterator();
+//				while ((termsEnum.next() != null)) {
+//					final String tt = termsEnum.term().utf8ToString();
+//					//TODO  FIX THIS, CHANGE CONTAINS
+//					final String content = docField.stringValue().replaceAll("\n , \t .", " ");
+//					if(content.contains(" " + tt + " ")) {
+//						
+//						System.out.println("Term: " + tt + " at docID: " + docID);
+//						System.out.println("Path: " + path.stringValue());
+//						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
+//						int whereDoc;
+//						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+//							if(whereDoc == docID) {
+//								System.out.println("ddd");
+//								break;
+//							}
+//							postings.nextDoc();
+//						}
+//						System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
+//						System.out.print("Term at positions: ");
+//						for (int i=postings.freq(); i>0; i--) {
+//							int pos = postings.nextPosition();
+//							System.out.print(pos + " ");
+//						}
+//						System.out.println("\n");
+//						System.out.println("Term DocFrequency: " + termsEnum.docFreq());
+//						System.out.println("---------------------------------------------");
+//					}
+//				}		
 			}
 		}
 	}
