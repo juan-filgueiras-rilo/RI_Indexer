@@ -55,6 +55,7 @@ import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.MultiFields;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
@@ -316,56 +317,66 @@ public class ReutersIndexer {
 	private static void createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
 		
 		Document doc = null;
-		IndexableField docField = null;
+		Terms terms = null;
+		BytesRef term = null;
+//		IndexableField docField = null;
 		IndexableField path = null;
+//		ArrayList<String> termNames = new ArrayList<>();
 		
-		for (final LeafReaderContext leaf : indexReader.leaves()) {
+		doc = indexReader.document(docID);
+		path = doc.getField("path");
+		terms = indexReader.getTermVector(docID, fieldName);
+		TermsEnum termsEnum = terms.iterator();
+		
+		while ((termsEnum.next() != null)) {
+			//[Float, Float, String] point = [0.0, 0.0, "origin"]; TODO
+			//https://ceylon-lang.org/blog/2013/01/21/abstracting-over-functions/
+			term = termsEnum.term();
+			termsEnum.totalTermFreq();
+			termsEnum.docFreq();
+			PostingsEnum postings = MultiFields.getTermDocsEnum(indexReader, fieldName, term, PostingsEnum.ALL);
 			
-			try (LeafReader leafReader = leaf.reader()) {
-				
-				doc = leafReader.document(docID);
-				docField = doc.getField(fieldName);
-				path = doc.getField("path");
-				System.out.println("Field = " + fieldName);
-				String[] docTerms = docField.stringValue().split(" ");
-				for (String docTerm: docTerms) {
-					if(docTerm.endsWith(".") || docTerm.endsWith(",")) {
-						docTerm = docTerm.substring(0 , docTerm.length()-1);
-					}
-					
-				}
-				final Terms terms = leafReader.fields().terms(fieldName);
-				final TermsEnum termsEnum = terms.iterator();
+		}
+//		for (final LeafReaderContext leaf : indexReader.leaves()) {
+//			
+//			try (LeafReader leafReader = leaf.reader()) {
+//				
+//				doc = leafReader.document(docID);
+//				docField = doc.getField(fieldName);
+//				path = doc.getField("path");
+//				System.out.println("Field = " + fieldName);
+//				//final Terms terms = leafReader.fields().terms(fieldName);
+//				final TermsEnum termsEnum = terms.iterator();
 //				while ((termsEnum.next() != null)) {
 //					final String tt = termsEnum.term().utf8ToString();
-//					//TODO  FIX THIS, CHANGE CONTAINS
-//					final String content = docField.stringValue().replaceAll("\n , \t .", " ");
-//					if(content.contains(" " + tt + " ")) {
-//						
-//						System.out.println("Term: " + tt + " at docID: " + docID);
-//						System.out.println("Path: " + path.stringValue());
+//					//FIX THIS, CHANGE CONTAINS || ORD?
+//					if(docField.stringValue().contains(tt)) {
+//						//leafReader.
 //						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
 //						int whereDoc;
 //						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
 //							if(whereDoc == docID) {
-//								System.out.println("ddd");
 //								break;
 //							}
 //							postings.nextDoc();
 //						}
-//						System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
-//						System.out.print("Term at positions: ");
-//						for (int i=postings.freq(); i>0; i--) {
-//							int pos = postings.nextPosition();
-//							System.out.print(pos + " ");
+//						if (whereDoc == docID) {
+//							System.out.println("Term: " + tt + " at docID: " + docID);
+//							System.out.println("Path: " + path.stringValue());
+//							System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
+//							System.out.print("Term at positions: ");
+//							for (int i=postings.freq(); i>0; i--) {
+//								int pos = postings.nextPosition();
+//								System.out.print(pos + " ");
+//							}
+//							System.out.println("\n");
+//							System.out.println("Term DocFrequency: " + termsEnum.docFreq());
+//							System.out.println("---------------------------------------------");
 //						}
-//						System.out.println("\n");
-//						System.out.println("Term DocFrequency: " + termsEnum.docFreq());
-//						System.out.println("---------------------------------------------");
 //					}
 //				}		
-			}
-		}
+//			}
+//		}
 	}
 	
 	private static void createTfPosList(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
