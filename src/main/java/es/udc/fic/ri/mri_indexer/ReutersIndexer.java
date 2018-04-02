@@ -17,6 +17,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,6 +48,7 @@ import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -102,6 +104,8 @@ public class ReutersIndexer {
 		boolean multithread = false;
 		boolean addindexes = false;
 
+		boolean bestIdfTerms = false;
+		boolean tfPos = false;
 		String termName = "said";
 		String fieldName = "body";
 		int bestN = 10;
@@ -169,6 +173,7 @@ public class ReutersIndexer {
 				}
 			case("-best_idfterms"):
 				setOpIfNone(IndexOperation.PROCESS);
+				bestIdfTerms = true;
 				if(args.length-1 >= i+1) {
 					fieldName = args[i+1];
 					if(args.length-1 >= i+2) {
@@ -187,6 +192,7 @@ public class ReutersIndexer {
 				}
 			case("-tfpos"):
 				setOpIfNone(IndexOperation.PROCESS);
+				tfPos = true;
 				if(args.length-1 >= i+1) {
 					fieldName = args[i+1];
 					if(args.length-1 >= i+2) {
@@ -242,47 +248,11 @@ public class ReutersIndexer {
 					DirectoryReader indexReader;
 					dir = FSDirectory.open(Paths.get(indexPath));
 					indexReader = DirectoryReader.open(dir);
-					// best_idfterms
-					int docCount = indexReader.numDocs();
-					TFIDFSimilarity similarity = new ClassicSimilarity();
-					System.out.println("Size of  indexReader.leaves() = " + indexReader.leaves().size());
-					for (final LeafReaderContext leaf : indexReader.leaves()) {
-						// Print leaf number (starting from zero)
-						System.out.println("We are in the leaf number " + leaf.ord);
-
-						// Create an AtomicReader for each leaf
-						// (using, again, Java 7 try-with-resources syntax)
-						try (LeafReader leafReader = leaf.reader()) {
-							
-							// Get the fields contained in the current segment/leaf
-							final Fields fields = leafReader.fields();
-							System.out.println(
-									"Numero de campos devuelto por leafReader.fields() = " + fields.size());
-							for (final String field : fields) {
-								if(field.equals(fieldName)) {
-									System.out.println("Field = " + field);
-									final Terms terms = fields.terms(field);
-									final TermsEnum termsEnum = terms.iterator();
-									Map<String, Double> termList = new LinkedHashMap<>();
-									while ((termsEnum.next() != null)) {
-										final String tt = termsEnum.term().utf8ToString();
-										final long docFreq = termsEnum.docFreq();
-										final double idf = similarity.idf(docFreq, docCount);
-										termList.put(tt, idf);
-									}
-									termList = sortByValue(termList);
-									System.out.println(docCount);
-									Set<Entry<String, Double>> setList = termList.entrySet();
-									for (Entry<String, Double> bestTerm : setList) {
-										if (bestN == 0)
-											break;
-	
-										System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
-										bestN--;
-									}
-								}
-							}
-						}
+					if(bestIdfTerms) {
+						calculateBestIdfTerms(fieldName, bestN, indexReader);
+					}
+					if(tfPos) {
+						createTfPos(fieldName, termName, indexReader);
 					}
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -295,7 +265,95 @@ public class ReutersIndexer {
 					"\n with message: " + e.getMessage());
 		}
 	}
+	private static void createTfPos(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
+		
+		Document doc = null;
+		Set<String> fieldsToLoad =  new HashSet<>();
+		BytesRef seekedTerm = new BytesRef(termName);
+		fieldsToLoad.add(fieldName);
+		fieldsToLoad.add("path");
+		for (int docID = 0; docID < indexReader.maxDoc(); docID++) {
+			
+			try {
+				doc = indexReader.document(docID,fieldsToLoad);
+				IndexableField field = doc.getField(fieldName);
+				IndexableField path = doc.getField("path");
+				if (field == null) {
+					System.err.println("Error: while opening field: <" + fieldName + ">. Not a stored field.");
+					System.exit(-1);
+				}
+				Terms termVector = indexReader.getTermVector(docID, fieldName);
+				TermsEnum termsEnum = termVector.iterator();
+				
+				if (termsEnum.seekExact(seekedTerm)) {
+					PostingsEnum postings = null;
+					BytesRef term = null;
+					while((term = termsEnum.next()) != null) {
+						try {
+							String termText = term.utf8ToString();
+							postings = termsEnum.postings(postings, PostingsEnum.FREQS);
+							int freq = postings.freq();
+							System.out.println("doc:" + docID + ", term: " + termText + ", termFreq = " + freq);
+						} catch(Exception e) {
+							System.out.println(e);
+						}
+					}
+				}
+			} catch (CorruptIndexException e) {
+				throw e;
+			} catch (IOException e) {
+				throw e;
+			}			
+		}
+	}
+	
+	private static void calculateBestIdfTerms(String fieldName, int bestN, DirectoryReader indexReader) throws IOException {
+		
+		int docCount = indexReader.numDocs();
+		TFIDFSimilarity similarity = new ClassicSimilarity();
+		System.out.println("Size of  indexReader.leaves() = " + indexReader.leaves().size());
+		for (final LeafReaderContext leaf : indexReader.leaves()) {
+			// Print leaf number (starting from zero)
+			System.out.println("We are in the leaf number " + leaf.ord);
 
+			// Create an AtomicReader for each leaf
+			// (using, again, Java 7 try-with-resources syntax)
+			try (LeafReader leafReader = leaf.reader()) {
+				
+				// Get the fields contained in the current segment/leaf
+				final Fields fields = leafReader.fields();
+				System.out.println(
+						"Numero de campos devuelto por leafReader.fields() = " + fields.size());
+				for (final String field : fields) {
+					if(field.equals(fieldName)) {
+						System.out.println("Field = " + field);
+						final Terms terms = fields.terms(field);
+						final TermsEnum termsEnum = terms.iterator();
+						Map<String, Float> termList = new LinkedHashMap<>();
+						while ((termsEnum.next() != null)) {
+							final String tt = termsEnum.term().utf8ToString();
+							final long docFreq = termsEnum.docFreq();
+							final float idf = similarity.idf(docFreq, docCount);
+							termList.put(tt, idf);
+						}
+						termList = sortByValue(termList);
+						System.out.println(docCount);
+						Set<Entry<String, Float>> setList = termList.entrySet();
+						for (Entry<String, Float> bestTerm : setList) {
+							if (bestN == 0)
+								break;
+
+							System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
+							bestN--;
+						}
+					}
+				}
+			} catch (IOException e) {
+				throw e;
+			}
+		}
+	}
+	
 	private static Date startThreads(final Path docDir, String indexPath, OpenMode modo, boolean addindexes, IndexWriter writer) {
 		//final int numCores = Runtime.getRuntime().availableProcessors();
 		//final ExecutorService executor = Executors.newFixedThreadPool(numCores);
@@ -342,17 +400,13 @@ public class ReutersIndexer {
 			}
 			System.out.println("Finished all threads");
 			end = new Date();
-//			if (addindexes) {
-//				for (Directory d: dirs)
-//					writer.addIndexes(d);
-//			}
 			// NOTE: if you want to maximize search performance,
 			// you can optionally call forceMerge here.  This can be
 			// a terribly costly operation, so generally it's only
 			// worth it when your index is relatively static (ie
 			// you're done adding documents to it):
 			//
-			writer.forceMerge(1);
+			//writer.forceMerge(1);
 		} catch (IOException e) {
 			System.out.println(" caught a " + e.getClass() +
 					"\n with message: " + e.getMessage());
@@ -404,7 +458,7 @@ public class ReutersIndexer {
 				// make a new, empty document
 				Document doc = new Document();
 				
-				Field pathSgm = new StringField("path", file.toString(), Field.Store.NO);
+				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
 				doc.add(pathSgm);
 				
 				Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
