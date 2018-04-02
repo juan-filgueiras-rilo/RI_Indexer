@@ -411,30 +411,30 @@ public class ReutersIndexer {
 			// (using, again, Java 7 try-with-resources syntax)
 			try (LeafReader leafReader = leaf.reader()) {
 			
-			// Get the fields contained in the current segment/leaf
-			final Fields fields = leafReader.fields();
-			System.out.println(
-					"Numero de campos devuelto por leafReader.fields() = " + fields.size());
-			System.out.println("Field = " + fieldName);
-			final Terms terms = fields.terms(fieldName);
-			final TermsEnum termsEnum = terms.iterator();
-			Map<String, Float> termList = new LinkedHashMap<>();
-			while ((termsEnum.next() != null)) {
-				final String tt = termsEnum.term().utf8ToString();
-				final long docFreq = termsEnum.docFreq();
-				final float idf = similarity.idf(docFreq, docCount);
-				termList.put(tt, idf);
-			}
-			termList = sortByValue(termList);
-			System.out.println(docCount);
-			Set<Entry<String, Float>> setList = termList.entrySet();
-			for (Entry<String, Float> bestTerm : setList) {
-				if (bestN == 0)
-					break;
-
-				System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
-				bestN--;
-					}
+				// Get the fields contained in the current segment/leaf
+				final Fields fields = leafReader.fields();
+				System.out.println(
+						"Numero de campos devuelto por leafReader.fields() = " + fields.size());
+				System.out.println("Field = " + fieldName);
+				final Terms terms = fields.terms(fieldName);
+				final TermsEnum termsEnum = terms.iterator();
+				Map<String, Float> termList = new LinkedHashMap<>();
+				while ((termsEnum.next() != null)) {
+					final String tt = termsEnum.term().utf8ToString();
+					final long docFreq = termsEnum.docFreq();
+					final float idf = similarity.idf(docFreq, docCount);
+					termList.put(tt, idf);
+				}
+				termList = sortByValue(termList);
+				System.out.println(docCount);
+				Set<Entry<String, Float>> setList = termList.entrySet();
+				for (Entry<String, Float> bestTerm : setList) {
+					if (bestN == 0)
+						break;
+	
+					System.out.println(bestTerm.getKey() + ", " + bestTerm.getValue());
+					bestN--;
+				}
 			} catch (IOException e) {
 				throw e;
 			}
@@ -445,7 +445,6 @@ public class ReutersIndexer {
 		//final int numCores = Runtime.getRuntime().availableProcessors();
 		//final ExecutorService executor = Executors.newFixedThreadPool(numCores);
 		final ExecutorService executor = Executors.newCachedThreadPool();
-		List<Directory> dirs = new ArrayList<>();
 		Date end = null;
 		//Elimino la ruta sobre la que cree el indexWriter principal, ya no lo necesito.
 		if(addindexes)
@@ -460,7 +459,6 @@ public class ReutersIndexer {
 					if(addindexes) {
 						Directory subIndexPath = FSDirectory.open(Paths.get(indexPath,
 							docDir.relativize(subDocDir).toString()));
-						dirs.add(subIndexPath);
 						worker = new WorkerThread(subDocDir, subIndexPath, modo, writer);
 					}
 					else 
