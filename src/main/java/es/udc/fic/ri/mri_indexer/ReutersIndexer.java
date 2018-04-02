@@ -282,23 +282,10 @@ public class ReutersIndexer {
 					System.err.println("Error: while opening field: <" + fieldName + ">. Not a stored field.");
 					System.exit(-1);
 				}
-				Terms termVector = indexReader.getTermVector(docID, fieldName);
-				TermsEnum termsEnum = termVector.iterator();
+				System.out.println(docID);
+				System.out.println(path.stringValue());
 				
-				if (termsEnum.seekExact(seekedTerm)) {
-					PostingsEnum postings = null;
-					BytesRef term = null;
-					while((term = termsEnum.next()) != null) {
-						try {
-							String termText = term.utf8ToString();
-							postings = termsEnum.postings(postings, PostingsEnum.FREQS);
-							int freq = postings.freq();
-							System.out.println("doc:" + docID + ", term: " + termText + ", termFreq = " + freq);
-						} catch(Exception e) {
-							System.out.println(e);
-						}
-					}
-				}
+				
 			} catch (CorruptIndexException e) {
 				throw e;
 			} catch (IOException e) {
