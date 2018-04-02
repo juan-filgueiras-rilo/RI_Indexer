@@ -336,7 +336,7 @@ public class ReutersIndexer {
 				
 				while ((termsEnum.next() != null)) {
 					final String tt = termsEnum.term().utf8ToString();
-					//Fix this
+					//TODO  FIX THIS
 					if(docField.stringValue().contains(tt)) {
 						
 						System.out.println("Term: " + tt + " at docID: " + docID);
