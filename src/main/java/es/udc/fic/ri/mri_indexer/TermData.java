@@ -53,10 +53,19 @@ public class TermData implements Comparable<TermData>{
     }
 
     public int compareByTermFreq(TermData o) {
-        return this.frequency-o.getFrequency();
+        return o.getFrequency()-this.frequency;
     }
 
     public int compareByDocFreq(TermData o) {
-        return this.docFrequency-o.getDocFrequency();
+        return o.getDocFrequency()-this.docFrequency;
+    }
+    
+    @Override
+    public String toString() {
+    	String positionString = "";
+    	for(Integer pos: positions) {
+    		positionString+=pos.toString() + " ";
+    	}
+    	return "Term: " + this.name + "\n" + "Term frequency: " + this.frequency + "\n" + "Term at positions: " + positionString + "\n" + "Term DocFrequency: " + this.docFrequency;
     }
 }

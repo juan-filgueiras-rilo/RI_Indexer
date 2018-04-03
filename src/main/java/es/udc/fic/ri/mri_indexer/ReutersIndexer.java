@@ -311,7 +311,10 @@ public class ReutersIndexer {
 								termsList.sort(TermData::compareByTermFreq);
 								break;
 						}
-						System.out.println(termsList);
+						for(TermData t: termsList) {
+							System.out.println(t.toString());
+							System.out.println("-----------------------------------------");
+						}
 					}
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -333,8 +336,6 @@ public class ReutersIndexer {
 		IndexableField path = null;
 		List<Integer> positionList;
 		List<TermData> termsList = new ArrayList<>();
-		//-indexin C:\Users\Juan\Documents\RI\index -termstfpos1 0 body 1
-		//		ArrayList<String> termNames = new ArrayList<>();
 
 		doc = indexReader.document(docID);
 		path = doc.getField("path");
@@ -342,67 +343,51 @@ public class ReutersIndexer {
 		TermsEnum termsEnum = terms.iterator();
 
 		if(termsEnum != null) {
+			PostingsEnum postings = null;
 			while ((termsEnum.next() != null)) {
 				positionList = new ArrayList<>();
-				//https://ceylon-lang.org/blog/2013/01/21/abstracting-over-functions/
 				term = termsEnum.term();
-
-				termsEnum.docFreq();
-				PostingsEnum postings = MultiFields.getTermDocsEnum(indexReader, fieldName, term, PostingsEnum.ALL);
+				postings = termsEnum.postings(postings, PostingsEnum.ALL);
+				postings.nextDoc();
 				for (int i=postings.freq(); i>0; i--) {
 					int pos = postings.nextPosition();
 					positionList.add(pos);
-					System.out.print(pos + " ");
 				}
-				termsList.add(new TermData(term.utf8ToString(),postings.freq(),termsEnum.docFreq(),positionList));
-
+				termsList.add(new TermData(term.utf8ToString(),(int)termsEnum.totalTermFreq(),indexReader.docFreq(new Term(fieldName,term)),positionList));
 			}
 		} else {
 			for (final LeafReaderContext leaf : indexReader.leaves()) {
 
 				try (LeafReader leafReader = leaf.reader()) {
 
-					doc = leafReader.document(docID);
-					IndexableField docField = doc.getField(fieldName);
-					path = doc.getField("path");
-					System.out.println("Field = " + fieldName);
-					//final Terms terms = leafReader.fields().terms(fieldName);
+					terms = leafReader.fields().terms(fieldName);
 					termsEnum = terms.iterator();
 					while ((termsEnum.next() != null)) {
 						final String tt = termsEnum.term().utf8ToString();
-						//FIX THIS, CHANGE CONTAINS || ORD?
-						if(docField.stringValue().contains(tt)) {
-							//leafReader.
-							final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
-							int whereDoc;
-							while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-								if(whereDoc == docID) {
-									break;
-								}
-								postings.nextDoc();
+						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
+						int whereDoc;
+						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+							if(whereDoc == docID) {
+								break;
 							}
-							if (whereDoc == docID) {
-								positionList = new ArrayList<>();
-								System.out.println("Term: " + tt + " at docID: " + docID);
-								System.out.println("Path: " + path.stringValue());
-								System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
-								System.out.print("Term at positions: ");
-								for (int i=postings.freq(); i>0; i--) {
-									int pos = postings.nextPosition();
-									positionList.add(pos);
-									System.out.print(pos + " ");
-								}
-								System.out.println("\n");
-								System.out.println("Term DocFrequency: " + termsEnum.docFreq());
-								System.out.println("---------------------------------------------");
-								termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
-
-							}
+							postings.nextDoc();
 						}
-					}		
+						if (whereDoc == docID) {
+							positionList = new ArrayList<>();
+							for (int i=postings.freq(); i>0; i--) {
+								int pos = postings.nextPosition();
+								positionList.add(pos);
+							}
+							termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
+						}
+					}
 				}
 			}
 		}
+		System.out.println("Document ID nº " + docID + ":");
+		System.out.println("Field: "+ fieldName);
+		System.out.println("Path: " + path.stringValue());
+		System.out.println("Terms:");
 		return termsList;
 	}
 	
