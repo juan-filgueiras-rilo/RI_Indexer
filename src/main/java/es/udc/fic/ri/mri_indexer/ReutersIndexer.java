@@ -333,6 +333,7 @@ public class ReutersIndexer {
 		IndexableField path = null;
 		List<Integer> positionList;
 		List<TermData> termsList = new ArrayList<>();
+		//-indexin C:\Users\Juan\Documents\RI\index -termstfpos1 0 body 1
 		//		ArrayList<String> termNames = new ArrayList<>();
 
 		doc = indexReader.document(docID);
