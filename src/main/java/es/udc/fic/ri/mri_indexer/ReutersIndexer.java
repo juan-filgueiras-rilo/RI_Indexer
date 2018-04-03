@@ -313,70 +313,72 @@ public class ReutersIndexer {
 					"\n with message: " + e.getMessage());
 		}
 	}
-	
+
 	private static void createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
-		
+
 		Document doc = null;
 		Terms terms = null;
 		BytesRef term = null;
-//		IndexableField docField = null;
 		IndexableField path = null;
-//		ArrayList<String> termNames = new ArrayList<>();
-		
+		//		ArrayList<String> termNames = new ArrayList<>();
+
 		doc = indexReader.document(docID);
 		path = doc.getField("path");
 		terms = indexReader.getTermVector(docID, fieldName);
 		TermsEnum termsEnum = terms.iterator();
-		
-		while ((termsEnum.next() != null)) {
-			//[Float, Float, String] point = [0.0, 0.0, "origin"]; TODO
-			//https://ceylon-lang.org/blog/2013/01/21/abstracting-over-functions/
-			term = termsEnum.term();
-			termsEnum.totalTermFreq();
-			termsEnum.docFreq();
-			PostingsEnum postings = MultiFields.getTermDocsEnum(indexReader, fieldName, term, PostingsEnum.ALL);
-			
+
+		if(termsEnum != null) {
+			while ((termsEnum.next() != null)) {
+
+				//https://ceylon-lang.org/blog/2013/01/21/abstracting-over-functions/
+				term = termsEnum.term();
+				termsEnum.totalTermFreq();
+				termsEnum.docFreq();
+				PostingsEnum postings = MultiFields.getTermDocsEnum(indexReader, fieldName, term, PostingsEnum.ALL);
+
+			}
+		} else {
+			for (final LeafReaderContext leaf : indexReader.leaves()) {
+
+				try (LeafReader leafReader = leaf.reader()) {
+
+					doc = leafReader.document(docID);
+					IndexableField docField = doc.getField(fieldName);
+					path = doc.getField("path");
+					System.out.println("Field = " + fieldName);
+					//final Terms terms = leafReader.fields().terms(fieldName);
+					termsEnum = terms.iterator();
+					while ((termsEnum.next() != null)) {
+						final String tt = termsEnum.term().utf8ToString();
+						//FIX THIS, CHANGE CONTAINS || ORD?
+						if(docField.stringValue().contains(tt)) {
+							//leafReader.
+							final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
+							int whereDoc;
+							while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+								if(whereDoc == docID) {
+									break;
+								}
+								postings.nextDoc();
+							}
+							if (whereDoc == docID) {
+								System.out.println("Term: " + tt + " at docID: " + docID);
+								System.out.println("Path: " + path.stringValue());
+								System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
+								System.out.print("Term at positions: ");
+								for (int i=postings.freq(); i>0; i--) {
+									int pos = postings.nextPosition();
+									System.out.print(pos + " ");
+								}
+								System.out.println("\n");
+								System.out.println("Term DocFrequency: " + termsEnum.docFreq());
+								System.out.println("---------------------------------------------");
+							}
+						}
+					}		
+				}
+			}
 		}
-//		for (final LeafReaderContext leaf : indexReader.leaves()) {
-//			
-//			try (LeafReader leafReader = leaf.reader()) {
-//				
-//				doc = leafReader.document(docID);
-//				docField = doc.getField(fieldName);
-//				path = doc.getField("path");
-//				System.out.println("Field = " + fieldName);
-//				//final Terms terms = leafReader.fields().terms(fieldName);
-//				final TermsEnum termsEnum = terms.iterator();
-//				while ((termsEnum.next() != null)) {
-//					final String tt = termsEnum.term().utf8ToString();
-//					//FIX THIS, CHANGE CONTAINS || ORD?
-//					if(docField.stringValue().contains(tt)) {
-//						//leafReader.
-//						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
-//						int whereDoc;
-//						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-//							if(whereDoc == docID) {
-//								break;
-//							}
-//							postings.nextDoc();
-//						}
-//						if (whereDoc == docID) {
-//							System.out.println("Term: " + tt + " at docID: " + docID);
-//							System.out.println("Path: " + path.stringValue());
-//							System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
-//							System.out.print("Term at positions: ");
-//							for (int i=postings.freq(); i>0; i--) {
-//								int pos = postings.nextPosition();
-//								System.out.print(pos + " ");
-//							}
-//							System.out.println("\n");
-//							System.out.println("Term DocFrequency: " + termsEnum.docFreq());
-//							System.out.println("---------------------------------------------");
-//						}
-//					}
-//				}		
-//			}
-//		}
 	}
 	
 	private static void createTfPosList(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
