@@ -300,7 +300,18 @@ public class ReutersIndexer {
 						createTfPosList(fieldName, termName, indexReader);
 					}
 					if(termstfpos1) {
-						createTermTfPosList(docID, fieldName, indexReader);
+						List<TermData> termsList = createTermTfPosList(docID, fieldName, indexReader);
+						switch (ord) {
+							case ALF:
+								break;
+							case DF_DEC:
+								termsList.sort(TermData::compareByDocFreq);
+								break;
+							case TF_DEC:
+								termsList.sort(TermData::compareByTermFreq);
+								break;
+						}
+						System.out.println(termsList);
 					}
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -314,12 +325,14 @@ public class ReutersIndexer {
 		}
 	}
 
-	private static void createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
+	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
 
 		Document doc = null;
 		Terms terms = null;
 		BytesRef term = null;
 		IndexableField path = null;
+		List<Integer> positionList;
+		List<TermData> termsList = new ArrayList<>();
 		//		ArrayList<String> termNames = new ArrayList<>();
 
 		doc = indexReader.document(docID);
@@ -329,12 +342,18 @@ public class ReutersIndexer {
 
 		if(termsEnum != null) {
 			while ((termsEnum.next() != null)) {
-
+				positionList = new ArrayList<>();
 				//https://ceylon-lang.org/blog/2013/01/21/abstracting-over-functions/
 				term = termsEnum.term();
-				termsEnum.totalTermFreq();
+
 				termsEnum.docFreq();
 				PostingsEnum postings = MultiFields.getTermDocsEnum(indexReader, fieldName, term, PostingsEnum.ALL);
+				for (int i=postings.freq(); i>0; i--) {
+					int pos = postings.nextPosition();
+					positionList.add(pos);
+					System.out.print(pos + " ");
+				}
+				termsList.add(new TermData(term.utf8ToString(),postings.freq(),termsEnum.docFreq(),positionList));
 
 			}
 		} else {
@@ -362,23 +381,28 @@ public class ReutersIndexer {
 								postings.nextDoc();
 							}
 							if (whereDoc == docID) {
+								positionList = new ArrayList<>();
 								System.out.println("Term: " + tt + " at docID: " + docID);
 								System.out.println("Path: " + path.stringValue());
 								System.out.println("Term frequency on doc <" + whereDoc + ">: " + postings.freq());
 								System.out.print("Term at positions: ");
 								for (int i=postings.freq(); i>0; i--) {
 									int pos = postings.nextPosition();
+									positionList.add(pos);
 									System.out.print(pos + " ");
 								}
 								System.out.println("\n");
 								System.out.println("Term DocFrequency: " + termsEnum.docFreq());
 								System.out.println("---------------------------------------------");
+								termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
+
 							}
 						}
 					}		
 				}
 			}
 		}
+		return termsList;
 	}
 	
 	private static void createTfPosList(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
