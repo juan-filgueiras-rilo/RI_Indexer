@@ -117,6 +117,8 @@ public class ReutersIndexer {
 		boolean bestIdfTerms = false;
 		boolean tfPos = false;
 		boolean termstfpos1 = false;
+		boolean deldocsterm = false;
+		boolean deldocsquery = false;
 		String termName = "said";
 		String fieldName = "body";
 		int bestN = 10;
@@ -251,6 +253,27 @@ public class ReutersIndexer {
 					System.err.println("Wrong option -termstfpos1.\n " + usage);
 					System.exit(-1);
 				}
+			case("-deldocsterm"):
+				if(args.length-1 >= i+2){
+					fieldName = args[++i];
+					termName = args[++i];
+					deldocsterm = true;
+//					List<Integer> docList = docsToDeleteByTermName(fieldName,termName);
+//					remakeIndexDeletingDocsList(docList);
+				}
+				break;
+			case("-deldocsquery"):
+				if(args.length-1 >= i+2){
+					String query = "";
+					while(args.length-1 >= i){
+						query += args[++i];
+						if (args.length-1 > i ) query += " ";
+					}
+					deldocsquery = true;
+//					List<Integer> docList = docsToDeleteByQuery(query);
+//					remakeIndexDeletingDocsList(docList);
+				}
+				break;
 			}
 		}
 
