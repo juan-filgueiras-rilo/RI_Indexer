@@ -387,7 +387,8 @@ public class ReutersIndexer {
 		System.out.println("Document ID nº " + docID + ":");
 		System.out.println("Field: "+ fieldName);
 		System.out.println("Path: " + path.stringValue());
-		System.out.println("Terms:");
+		System.out.println("Terms");
+		System.out.println("-----------------------------------------");
 		return termsList;
 	}
 	
