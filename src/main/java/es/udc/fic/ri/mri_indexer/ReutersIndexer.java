@@ -363,9 +363,9 @@ public class ReutersIndexer {
 		doc = indexReader.document(docID);
 		path = doc.getField("path");
 		terms = indexReader.getTermVector(docID, fieldName);
-		TermsEnum termsEnum = terms.iterator();
 
-		if(termsEnum != null) {
+		if(terms != null) {
+			TermsEnum termsEnum = terms.iterator();
 			PostingsEnum postings = null;
 			while ((termsEnum.next() != null)) {
 				positionList = new ArrayList<>();
@@ -384,7 +384,7 @@ public class ReutersIndexer {
 				try (LeafReader leafReader = leaf.reader()) {
 
 					terms = leafReader.fields().terms(fieldName);
-					termsEnum = terms.iterator();
+					TermsEnum termsEnum = terms.iterator();
 					while ((termsEnum.next() != null)) {
 						final String tt = termsEnum.term().utf8ToString();
 						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
