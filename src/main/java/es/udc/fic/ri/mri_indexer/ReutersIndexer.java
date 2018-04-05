@@ -51,6 +51,8 @@ import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.TermsQuery;
+import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
+import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
@@ -67,10 +69,6 @@ import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.similarities.TFIDFSimilarity;
 import org.apache.lucene.search.similarities.ClassicSimilarity;
-/*
- * Query parser syntax:
- * http://lucene.apache.org/core/6_3_0/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package_description
-*/
 
 public class ReutersIndexer {
 	
@@ -104,7 +102,8 @@ public class ReutersIndexer {
     }
 	private ReutersIndexer() {}
 	
-	/** Index all text files under a directory. */
+	/** Index all text files under a directory. 
+	 **/
 	public static void main(String[] args) {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
@@ -257,12 +256,18 @@ public class ReutersIndexer {
 					fieldName = args[++i];
 					termName = args[++i];
 					deldocsterm = true;
+				} else {
+					System.err.println("Wrong option -termstfpos1.\n " + usage);
+					System.exit(-1);
 				}
 				break;
 			case("-deldocsquery"):
-				if(args.length-1 >= i+2){
+				if(args.length-1 >= i+1){
 					query= args[++i];
 					deldocsquery = true;
+				} else {
+					System.err.println("Wrong option -termstfpos1.\n " + usage);
+					System.exit(-1);
 				}
 				break;
 			}
@@ -311,13 +316,11 @@ public class ReutersIndexer {
 						deleteDocsByTerm(fieldName, termName, dir);
 					}
 
-					if (deldocsquery){
-						deleteDocsByQuery(query, dir);
-					}
-
 					DirectoryReader indexReader;
 					indexReader = DirectoryReader.open(dir);
-					
+					if (deldocsquery){
+						deleteDocsByQuery(query, dir, indexReader);
+					}
 					if(bestIdfTerms) {
 						calculateBestIdfTerms(fieldName, bestN, indexReader);
 					}
@@ -343,7 +346,7 @@ public class ReutersIndexer {
 					}
 					
 					indexReader.close();
-				} catch (CorruptIndexException e1) {
+				} catch (CorruptIndexException | ParseException e1) {
 					System.err.println("Graceful message: exception " + e1);
 					e1.printStackTrace();
 				}
@@ -366,19 +369,30 @@ public class ReutersIndexer {
 
 		writer.deleteDocuments(term);
 		writer.close();
+		System.out.println("Done.");
 	}
 
-	private static void deleteDocsByQuery(String query, Directory dir) throws IOException {
+	private static void deleteDocsByQuery(String query, Directory dir, DirectoryReader indexReader) throws IOException, ParseException {
 
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(OpenMode.APPEND);
 		iwc.setRAMBufferSizeMB(512.0);
-
-		IndexWriter writer = new IndexWriter(dir, iwc);
-		Query q = new TermsQuery(query);
-		writer.deleteDocuments(q);
-		writer.close();
+		
+		String[] fields = {"topics","title","dateline","body","date"};
+		
+		QueryParser parser = new MultiFieldQueryParser(fields, analyzer);
+		Query q;
+		try {
+			q = parser.parse(query);
+			IndexWriter writer = new IndexWriter(dir, iwc);
+			writer.deleteDocuments(q);
+			writer.close();
+			System.out.println("Done.");
+		} catch (org.apache.lucene.queryparser.classic.ParseException e) {
+			System.err.println(e.getMessage());
+			System.exit(-1);
+		}
 	}
 
 	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
