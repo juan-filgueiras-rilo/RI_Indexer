@@ -45,9 +45,13 @@ import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -380,15 +384,65 @@ public class ReutersIndexer {
 
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
 		
+		Directory RAMDir = new RAMDirectory();
+		Analyzer subAnalyzer = new StandardAnalyzer();
+		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
+		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+		iwc.setRAMBufferSizeMB(512.0);
+		
 		for(int i=0; i<indexReader.numDocs(); i++) {
 		
+			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
 			Document doc = indexReader.document(i);
-			
-			
-			Field field = new TextField("summary", "", Field.Store.YES);
-			doc.add(field);
-			mainWriter.addDocument(doc);
+			IndexableField body = doc.getField("body");
+	        SentenceTokenizer sentenceTokenizer= new SentenceTokenizer();
+	        sentenceTokenizer.setText(body.stringValue());
+	        String[] sentences = sentenceTokenizer.getSentences();
+	        int sno = 0;
+	        
+	        for (String s:sentences) {
+	            Document tempDoc = new Document();
+	            tempDoc.add(new TextField("sentences", s, Field.Store.YES));
+	            //doc.setBoost(computeDeboost(pno, sno));
+	            subWriter.addDocument(tempDoc);
+	            sno++;
+	        }
+			if(sno == 0) {
+				Field field = new TextField("summary", "", Field.Store.YES);
+				doc.add(field);
+				mainWriter.addDocument(doc);
+				subWriter.close();
+				continue;
+			}
+	        QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
+	        try {
+	        	int n = 2;
+				Query q = parser.parse(doc.getField("title").stringValue());
+		        DirectoryReader subIndexReader = DirectoryReader.open(subWriter.getDirectory());
+		        IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+		        if(sno == 1) {
+		        	n = 1;
+		        }
+		        TopDocs td = indexSearcher.search(q, n);
+		        ScoreDoc[] sd = td.scoreDocs;
+		        String summary = "";
+		        for(ScoreDoc d: sd) {
+		        	Document dd = subIndexReader.document(d.doc);
+		        	summary += dd.getField("sentence").stringValue();
+		        }
+		        
+				Field field = new TextField("summary", summary, Field.Store.YES);
+				doc.add(field);
+				mainWriter.addDocument(doc);
+				
+				subWriter.close();
+			} catch (org.apache.lucene.queryparser.classic.ParseException e) {
+				System.err.println(e.getMessage());
+				System.exit(-1);
+			}
+	        
 		}
+		mainWriter.close();
 	}
 	
 	private static void deleteDocsByTerm(String fieldName, String termName, Directory dir) throws IOException {
