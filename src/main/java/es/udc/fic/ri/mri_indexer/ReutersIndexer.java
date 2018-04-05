@@ -50,6 +50,8 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.queries.TermsQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -259,13 +261,8 @@ public class ReutersIndexer {
 				break;
 			case("-deldocsquery"):
 				if(args.length-1 >= i+2){
-					while(args.length-1 >= i){
-						query += args[++i];
-						if (args.length-1 > i ) query += " ";
-					}
+					query= args[++i];
 					deldocsquery = true;
-//					List<Integer> docList = docsToDeleteByQuery(query);
-//					remakeIndexDeletingDocsList(docList);
 				}
 				break;
 			}
@@ -313,7 +310,11 @@ public class ReutersIndexer {
 					if (deldocsterm){
 						deleteDocsByTerm(fieldName, termName, dir);
 					}
-					
+
+					if (deldocsquery){
+						deleteDocsByQuery(query, dir);
+					}
+
 					DirectoryReader indexReader;
 					indexReader = DirectoryReader.open(dir);
 					
@@ -354,19 +355,32 @@ public class ReutersIndexer {
 	}
 
 	private static void deleteDocsByTerm(String fieldName, String termName, Directory dir) throws IOException {
-		
+
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(OpenMode.APPEND);
 		iwc.setRAMBufferSizeMB(512.0);
-		
+
 		IndexWriter writer = new IndexWriter(dir, iwc);
 		Term term = new Term(fieldName, termName);
-		
+
 		writer.deleteDocuments(term);
 		writer.close();
 	}
-	
+
+	private static void deleteDocsByQuery(String query, Directory dir) throws IOException {
+
+		Analyzer analyzer = new StandardAnalyzer();
+		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+		iwc.setOpenMode(OpenMode.APPEND);
+		iwc.setRAMBufferSizeMB(512.0);
+
+		IndexWriter writer = new IndexWriter(dir, iwc);
+		Query q = new TermsQuery(query);
+		writer.deleteDocuments(q);
+		writer.close();
+	}
+
 	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
 
 		Document doc = null;
