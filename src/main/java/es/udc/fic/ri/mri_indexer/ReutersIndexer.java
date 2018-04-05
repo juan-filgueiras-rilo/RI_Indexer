@@ -121,6 +121,7 @@ public class ReutersIndexer {
 		boolean deldocsquery = false;
 		String termName = "said";
 		String fieldName = "body";
+		String query = "";
 		int bestN = 10;
 		int docID = 0;
 		Ord ord = Ord.ALF;
@@ -189,15 +190,13 @@ public class ReutersIndexer {
 			case("-best_idfterms"):
 				setOpIfNone(IndexOperation.PROCESS);
 				bestIdfTerms = true;
-				if(args.length-1 >= i+1) {
+				if(args.length-1 >= i+2) {
 					fieldName = args[i+1];
-					if(args.length-1 >= i+2) {
-						try {
-							bestN = Integer.parseInt(args[i+2]);
-						} catch (NumberFormatException e) {
-							System.err.println("Error while parsing the number of best n_terms\n " + usage);
-							System.exit(-1);
-						}
+					try {
+						bestN = Integer.parseInt(args[i+2]);
+					} catch (NumberFormatException e) {
+						System.err.println("Error while parsing the number of best n_terms\n " + usage);
+						System.exit(-1);
 					}
 					i+=2;
 					break;
@@ -222,30 +221,26 @@ public class ReutersIndexer {
 			case("-termstfpos1"):
 				setOpIfNone(IndexOperation.PROCESS);
 				termstfpos1 = true;
-				if(args.length-1 >= i+1) {
+				if(args.length-1 >= i+3) {
 					try {
 						docID = Integer.parseInt(args[i+1]);
 					} catch (NumberFormatException e) {
 						System.err.println("Error while parsing the given Lucene docID\n " + usage);
 						System.exit(-1);
 					}
-					if(args.length-1 >= i+2) {
-						fieldName = args[i+2];
-					}
-					if(args.length-1 >= i+3) {
-						switch(Integer.parseInt(args[i+3])){
-						case(0):
-							ord = Ord.ALF;
-							break;
-						case(1):
-							ord = Ord.TF_DEC;
-							break;
-						case(2):
-							ord = Ord.DF_DEC;
-							break;
-						default: System.err.println("Wrong option -termstfpos1 <ord>.\n " + usage);
-						System.exit(-1);
-						}
+					fieldName = args[i+2];
+					switch(Integer.parseInt(args[i+3])) {
+					case(0):
+						ord = Ord.ALF;
+					break;
+					case(1):
+						ord = Ord.TF_DEC;
+					break;
+					case(2):
+						ord = Ord.DF_DEC;
+					break;
+					default: System.err.println("Wrong option -termstfpos1 <ord>.\n " + usage);
+					System.exit(-1);
 					}
 					i+=3;
 					break;
@@ -264,7 +259,6 @@ public class ReutersIndexer {
 				break;
 			case("-deldocsquery"):
 				if(args.length-1 >= i+2){
-					String query = "";
 					while(args.length-1 >= i){
 						query += args[++i];
 						if (args.length-1 > i ) query += " ";
@@ -297,14 +291,14 @@ public class ReutersIndexer {
 				iwc.setOpenMode(modo);
 				iwc.setRAMBufferSizeMB(512.0);
 				
-				IndexWriter writer = new IndexWriter(dir, iwc);
+				IndexWriter indexWriter = new IndexWriter(dir, iwc);
 				
 				if(multithread) {
-					end = startThreads(docDir, indexPath, modo, addindexes, writer);
+					end = startThreads(docDir, indexPath, modo, addindexes, indexWriter);
 				}  else {
-					indexDocs(writer, docDir);
+					indexDocs(indexWriter, docDir);
 				}
-				writer.close();
+				indexWriter.close();
 	
 				if(end == null) {
 					end = new Date();
@@ -339,11 +333,14 @@ public class ReutersIndexer {
 							System.out.println("-----------------------------------------");
 						}
 					}
+					if (deldocsterm){
+						deleteDocsByTerm(fieldName, termName, indexReader);
+					}
+					indexReader.close();
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
 					e1.printStackTrace();
 				}
-
 			}
 		} catch (IOException e) {
 			System.out.println(" caught a " + e.getClass() +
@@ -351,6 +348,21 @@ public class ReutersIndexer {
 		}
 	}
 
+	private static void deleteDocsByTerm(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
+		
+		Analyzer analyzer = new StandardAnalyzer();
+		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+		iwc.setOpenMode(OpenMode.APPEND);
+		iwc.setRAMBufferSizeMB(512.0);
+		
+		IndexWriter writer = new IndexWriter(indexReader.directory(), iwc);
+		Term term = new Term(fieldName, termName);
+		
+		long deletedDocs = writer.deleteDocuments(term);
+		System.out.println("Number of deleted documents: " + deletedDocs);
+		writer.close();
+	}
+	
 	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
 
 		Document doc = null;
