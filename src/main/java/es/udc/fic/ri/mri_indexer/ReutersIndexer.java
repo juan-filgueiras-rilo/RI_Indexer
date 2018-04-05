@@ -29,6 +29,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import javax.sound.midi.Soundbank;
+
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.DateTools;
@@ -253,8 +255,6 @@ public class ReutersIndexer {
 					fieldName = args[++i];
 					termName = args[++i];
 					deldocsterm = true;
-//					List<Integer> docList = docsToDeleteByTermName(fieldName,termName);
-//					remakeIndexDeletingDocsList(docList);
 				}
 				break;
 			case("-deldocsquery"):
@@ -306,10 +306,17 @@ public class ReutersIndexer {
 				System.out.println(end.getTime() - start.getTime() + " total milliseconds");
 			} else if (ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
 				try {
+					
 					Directory dir;
-					DirectoryReader indexReader;
 					dir = FSDirectory.open(Paths.get(indexPath));
+					
+					if (deldocsterm){
+						deleteDocsByTerm(fieldName, termName, dir);
+					}
+					
+					DirectoryReader indexReader;
 					indexReader = DirectoryReader.open(dir);
+					
 					if(bestIdfTerms) {
 						calculateBestIdfTerms(fieldName, bestN, indexReader);
 					}
@@ -333,9 +340,7 @@ public class ReutersIndexer {
 							System.out.println("-----------------------------------------");
 						}
 					}
-					if (deldocsterm){
-						deleteDocsByTerm(fieldName, termName, indexReader);
-					}
+					
 					indexReader.close();
 				} catch (CorruptIndexException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -348,18 +353,17 @@ public class ReutersIndexer {
 		}
 	}
 
-	private static void deleteDocsByTerm(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
+	private static void deleteDocsByTerm(String fieldName, String termName, Directory dir) throws IOException {
 		
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(OpenMode.APPEND);
 		iwc.setRAMBufferSizeMB(512.0);
 		
-		IndexWriter writer = new IndexWriter(indexReader.directory(), iwc);
+		IndexWriter writer = new IndexWriter(dir, iwc);
 		Term term = new Term(fieldName, termName);
 		
-		long deletedDocs = writer.deleteDocuments(term);
-		System.out.println("Number of deleted documents: " + deletedDocs);
+		writer.deleteDocuments(term);
 		writer.close();
 	}
 	
