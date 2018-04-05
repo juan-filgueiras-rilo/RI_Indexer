@@ -16,9 +16,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,9 +25,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-
-import javax.sound.midi.Soundbank;
-
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.DateTools;
@@ -44,33 +38,28 @@ import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexOptions;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.queries.TermsQuery;
+import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
+import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.search.CollectionStatistics;
-import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.MultiFields;
 import org.apache.lucene.index.PostingsEnum;
-import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.similarities.TFIDFSimilarity;
 import org.apache.lucene.search.similarities.ClassicSimilarity;
-/*
- * Query parser syntax:
- * http://lucene.apache.org/core/6_3_0/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package_description
-*/
 
 public class ReutersIndexer {
 	
@@ -104,7 +93,8 @@ public class ReutersIndexer {
     }
 	private ReutersIndexer() {}
 	
-	/** Index all text files under a directory. */
+	/** Index all text files under a directory. 
+	 **/
 	public static void main(String[] args) {
 		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
@@ -114,6 +104,7 @@ public class ReutersIndexer {
 		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
 		String docsPath = "D:\\RI\\reuters21578";
 		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
+		String indexOut = "D:\\RI\\index\\summaries";
 		OpenMode modo = OpenMode.CREATE_OR_APPEND;
 		boolean multithread = false;
 		boolean addindexes = false;
@@ -123,6 +114,7 @@ public class ReutersIndexer {
 		boolean termstfpos1 = false;
 		boolean deldocsterm = false;
 		boolean deldocsquery = false;
+		boolean summaries = false;
 		String termName = "said";
 		String fieldName = "body";
 		String query = "";
@@ -191,6 +183,16 @@ public class ReutersIndexer {
 					System.err.println("Wrong option -indexin.\n " + usage);
 					System.exit(-1);
 				}
+			case("-indexout"):
+				setOpIfNone(IndexOperation.PROCESS);
+				if (args.length-1 >= i+1 && isValidPath(args[i+1])) {
+					indexOut = args[i+1];
+					i++;
+					break;
+				} else {
+					System.err.println("Wrong option -indexout.\n " + usage);
+					System.exit(-1);
+				}
 			case("-best_idfterms"):
 				setOpIfNone(IndexOperation.PROCESS);
 				bestIdfTerms = true;
@@ -244,7 +246,7 @@ public class ReutersIndexer {
 						ord = Ord.DF_DEC;
 					break;
 					default: System.err.println("Wrong option -termstfpos1 <ord>.\n " + usage);
-					System.exit(-1);
+						System.exit(-1);
 					}
 					i+=3;
 					break;
@@ -253,16 +255,34 @@ public class ReutersIndexer {
 					System.exit(-1);
 				}
 			case("-deldocsterm"):
+				setOpIfNone(IndexOperation.PROCESS);
 				if(args.length-1 >= i+2){
 					fieldName = args[++i];
 					termName = args[++i];
 					deldocsterm = true;
+				} else {
+					System.err.println("Wrong option -deldocsterm.\n " + usage);
+					System.exit(-1);
 				}
 				break;
 			case("-deldocsquery"):
-				if(args.length-1 >= i+2){
-					query= args[++i];
+				setOpIfNone(IndexOperation.PROCESS);
+				if(args.length-1 >= i+1){
+					query = args[++i];
 					deldocsquery = true;
+				} else {
+					System.err.println("Wrong option -deldocsquery.\n " + usage);
+					System.exit(-1);
+				}
+				break;
+			case("-summaries"):
+				setOpIfNone(IndexOperation.PROCESS);
+				if(args.length-1 >= i+1){
+					query = args[++i];
+					summaries = true;
+				} else {
+					System.err.println("Wrong option -summaries.\n " + usage);
+					System.exit(-1);
 				}
 				break;
 			}
@@ -311,13 +331,11 @@ public class ReutersIndexer {
 						deleteDocsByTerm(fieldName, termName, dir);
 					}
 
-					if (deldocsquery){
-						deleteDocsByQuery(query, dir);
-					}
-
 					DirectoryReader indexReader;
 					indexReader = DirectoryReader.open(dir);
-					
+					if (deldocsquery){
+						deleteDocsByQuery(query, dir, indexReader);
+					}
 					if(bestIdfTerms) {
 						calculateBestIdfTerms(fieldName, bestN, indexReader);
 					}
@@ -341,9 +359,11 @@ public class ReutersIndexer {
 							System.out.println("-----------------------------------------");
 						}
 					}
-					
+					if(summaries) {
+						createIndexWithSummaries(indexReader, indexOut);
+					}
 					indexReader.close();
-				} catch (CorruptIndexException e1) {
+				} catch (CorruptIndexException | ParseException e1) {
 					System.err.println("Graceful message: exception " + e1);
 					e1.printStackTrace();
 				}
@@ -354,6 +374,77 @@ public class ReutersIndexer {
 		}
 	}
 
+	private static void createIndexWithSummaries(DirectoryReader indexReader, String indexOut) throws IOException {
+		
+		Directory outDir = FSDirectory.open(Paths.get(indexOut));
+		Analyzer analyzer = new StandardAnalyzer();
+		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+		iwc.setRAMBufferSizeMB(512.0);
+
+		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
+		
+		Directory RAMDir = new RAMDirectory();
+		Analyzer subAnalyzer = new StandardAnalyzer();
+		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
+		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+		iwc.setRAMBufferSizeMB(512.0);
+		
+		for(int i=0; i<indexReader.numDocs(); i++) {
+		
+			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
+			Document doc = indexReader.document(i);
+			IndexableField body = doc.getField("body");
+	        SentenceTokenizer sentenceTokenizer= new SentenceTokenizer();
+	        sentenceTokenizer.setText(body.stringValue());
+	        String[] sentences = sentenceTokenizer.getSentences();
+	        int sno = 0;
+	        
+	        for (String s:sentences) {
+	            Document tempDoc = new Document();
+	            tempDoc.add(new TextField("sentences", s, Field.Store.YES));
+	            //doc.setBoost(computeDeboost(pno, sno));
+	            subWriter.addDocument(tempDoc);
+	            sno++;
+	        }
+			if(sno == 0) {
+				Field field = new TextField("summary", "", Field.Store.YES);
+				doc.add(field);
+				mainWriter.addDocument(doc);
+				subWriter.close();
+				continue;
+			}
+	        QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
+	        try {
+	        	int n = 2;
+				Query q = parser.parse(doc.getField("title").stringValue());
+		        DirectoryReader subIndexReader = DirectoryReader.open(subWriter.getDirectory());
+		        IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+		        if(sno == 1) {
+		        	n = 1;
+		        }
+		        TopDocs td = indexSearcher.search(q, n);
+		        ScoreDoc[] sd = td.scoreDocs;
+		        String summary = "";
+		        for(ScoreDoc d: sd) {
+		        	Document dd = subIndexReader.document(d.doc);
+		        	summary += dd.getField("sentence").stringValue();
+		        }
+		        
+				Field field = new TextField("summary", summary, Field.Store.YES);
+				doc.add(field);
+				mainWriter.addDocument(doc);
+				
+				subWriter.close();
+			} catch (org.apache.lucene.queryparser.classic.ParseException e) {
+				System.err.println(e.getMessage());
+				System.exit(-1);
+			}
+	        
+		}
+		mainWriter.close();
+	}
+	
 	private static void deleteDocsByTerm(String fieldName, String termName, Directory dir) throws IOException {
 
 		Analyzer analyzer = new StandardAnalyzer();
@@ -366,19 +457,30 @@ public class ReutersIndexer {
 
 		writer.deleteDocuments(term);
 		writer.close();
+		System.out.println("Done.");
 	}
 
-	private static void deleteDocsByQuery(String query, Directory dir) throws IOException {
+	private static void deleteDocsByQuery(String query, Directory dir, DirectoryReader indexReader) throws IOException, ParseException {
 
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(OpenMode.APPEND);
 		iwc.setRAMBufferSizeMB(512.0);
-
-		IndexWriter writer = new IndexWriter(dir, iwc);
-		Query q = new TermsQuery(query);
-		writer.deleteDocuments(q);
-		writer.close();
+		
+		String[] fields = {"topics","title","dateline","body","date"};
+		
+		QueryParser parser = new MultiFieldQueryParser(fields, analyzer);
+		Query q;
+		try {
+			q = parser.parse(query);
+			IndexWriter writer = new IndexWriter(dir, iwc);
+			writer.deleteDocuments(q);
+			writer.close();
+			System.out.println("Done.");
+		} catch (org.apache.lucene.queryparser.classic.ParseException e) {
+			System.err.println(e.getMessage());
+			System.exit(-1);
+		}
 	}
 
 	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
@@ -613,6 +715,7 @@ public class ReutersIndexer {
 
 	/** Indexes a single document */
 	static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
+		
 		FieldType t = new FieldType();
 		t.setTokenized(true);
 		t.setStored(true);
@@ -621,6 +724,7 @@ public class ReutersIndexer {
 		t.setStoreTermVectorPositions(true);
 		t.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
 		t.freeze();
+		
 		try (InputStream stream = Files.newInputStream(file)) {
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
 			for (List<String> parsedDoc:parsedContent) {
