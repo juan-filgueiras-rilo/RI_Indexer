@@ -100,11 +100,12 @@ public class ReutersIndexer {
 				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
 				+ "in INDEX_PATH that can be searched with SearchFiles";
 		
-		String indexPath = "D:\\RI\\index";
-		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\2018";
-		String docsPath = "D:\\RI\\reuters21578";
-		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
-		String indexOut = "D:\\RI\\index\\summaries";
+		//String indexPath = "D:\\RI\\index";
+		String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\indexIn";
+		//String docsPath = "D:\\RI\\reuters21578";
+		String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
+		//String indexOut = "D:\\RI\\index\\summaries";
+		String indexOut = "D:\\UNI\\3º\\Recuperación de la Información\\indexOut";
 		OpenMode modo = OpenMode.CREATE_OR_APPEND;
 		boolean multithread = false;
 		boolean addindexes = false;
@@ -277,8 +278,7 @@ public class ReutersIndexer {
 				break;
 			case("-summaries"):
 				setOpIfNone(IndexOperation.PROCESS);
-				if(args.length-1 >= i+1){
-					query = args[++i];
+				if(args.length-1 >= i){
 					summaries = true;
 				} else {
 					System.err.println("Wrong option -summaries.\n " + usage);
@@ -383,8 +383,8 @@ public class ReutersIndexer {
 		iwc.setRAMBufferSizeMB(512.0);
 
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
-		
-		Directory RAMDir = new RAMDirectory();
+		String tempPath = indexOut+"\\tmp";
+		Directory RAMDir = FSDirectory.open(Paths.get(indexOut));
 		Analyzer subAnalyzer = new StandardAnalyzer();
 		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
 		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
@@ -407,10 +407,11 @@ public class ReutersIndexer {
 	            subWriter.addDocument(tempDoc);
 	            sno++;
 	        }
+
 			if(sno == 0) {
 				Field field = new TextField("summary", "", Field.Store.YES);
 				doc.add(field);
-				mainWriter.addDocument(doc);
+				subWriter.addDocument(doc);
 				subWriter.close();
 				continue;
 			}
@@ -418,7 +419,8 @@ public class ReutersIndexer {
 	        try {
 	        	int n = 2;
 				Query q = parser.parse(doc.getField("title").stringValue());
-		        DirectoryReader subIndexReader = DirectoryReader.open(subWriter.getDirectory());
+				Directory tempDir = FSDirectory.open(Paths.get(tempPath));
+		        DirectoryReader subIndexReader = DirectoryReader.open(tempDir);
 		        IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
 		        if(sno == 1) {
 		        	n = 1;
@@ -434,8 +436,8 @@ public class ReutersIndexer {
 				Field field = new TextField("summary", summary, Field.Store.YES);
 				doc.add(field);
 				mainWriter.addDocument(doc);
-				
 				subWriter.close();
+
 			} catch (org.apache.lucene.queryparser.classic.ParseException e) {
 				System.err.println(e.getMessage());
 				System.exit(-1);
@@ -746,7 +748,7 @@ public class ReutersIndexer {
 				Field topics = new TextField("topics", parsedDoc.get(2), Field.Store.YES);
 				doc.add(topics);
 				
-				Field title = new TextField("title", parsedDoc.get(0), Field.Store.NO);
+				Field title = new TextField("title", parsedDoc.get(0), Field.Store.YES);
 				doc.add(title);
 				
 				Field dateLine = new StringField("dateline", parsedDoc.get(4), Field.Store.YES);
