@@ -379,7 +379,7 @@ public class ReutersIndexer {
 		Directory outDir = FSDirectory.open(Paths.get(indexOut));
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
-		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+		iwc.setOpenMode(OpenMode.CREATE);
 		iwc.setRAMBufferSizeMB(512.0);
 
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
@@ -393,6 +393,8 @@ public class ReutersIndexer {
 			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
 			
 			Document doc = indexReader.document(i);
+			Document toAddDoc = new Document();
+			
 			IndexableField body = doc.getField("body");
 	        SentenceTokenizer sentenceTokenizer = new SentenceTokenizer();
 	        sentenceTokenizer.setText(body.stringValue());
@@ -401,17 +403,16 @@ public class ReutersIndexer {
 	        
 	        for (String s:sentences) {
 	            Document tempDoc = new Document();
-	            tempDoc.add(new TextField("sentences", s, Field.Store.YES));
-	            //doc.setBoost(computeDeboost(pno, sno));
+	            tempDoc.add(new TextField("sentence", s, Field.Store.YES));
 	            subWriter.addDocument(tempDoc);
 	            sno++;
 	        }
 
 			if(sno == 0) {
-				Field field = new TextField("summary", "", Field.Store.YES);
-				doc.add(field);
-				subWriter.addDocument(doc);
-				subWriter.close();
+//				Field field = new TextField("summary", "", Field.Store.YES);
+//				doc.add(field);
+				//subWriter.addDocument(doc);
+				//subWriter.close();
 				continue;
 			}
 			
@@ -423,9 +424,8 @@ public class ReutersIndexer {
 			System.out.println(titleField.stringValue());
 			
 			if((titleField != null) && (!titleField.stringValue().isEmpty())) {
-				Query q = parser.createPhraseQuery("body", titleField.stringValue());
-				
-				//Query q = parser.parse(titleField.stringValue().replace("/", "\\/").replace("}", "\\}").replace("-", "\\-").replace(" ", " "));
+
+				Query q = parser.createPhraseQuery("sentence", titleField.stringValue());
 			    DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
 			    IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
 			    if(sno >= 2) {
@@ -439,6 +439,7 @@ public class ReutersIndexer {
 			    	summary += dd.getField("sentence").stringValue();
 			    }
 			} else {
+				//2 primeras frases body
 				summary += "";
 			}
 				Field field = new TextField("summary", summary, Field.Store.YES);
