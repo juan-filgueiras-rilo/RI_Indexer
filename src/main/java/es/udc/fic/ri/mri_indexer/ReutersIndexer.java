@@ -384,15 +384,15 @@ public class ReutersIndexer {
 
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
 		
-		for(int i=0; i<indexReader.numDocs(); i++) {
-			System.out.println("Indexing doc. no:" + i);
+		for(int numDoc=0; numDoc<indexReader.numDocs(); numDoc++) {
+			System.out.println("Indexing doc. no:" + numDoc);
 			//String tempPath = indexOut+"\\tmp";
 			Directory RAMDir = new RAMDirectory();//.open(Paths.get(indexOut));
 			Analyzer subAnalyzer = new StandardAnalyzer();
 			IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
 			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
 			
-			Document doc = indexReader.document(i);
+			Document doc = indexReader.document(numDoc);
 			Document toAddDoc = new Document();
 			
 			IndexableField body = doc.getField("body");
@@ -403,16 +403,15 @@ public class ReutersIndexer {
 	        
 	        for (String s:sentences) {
 	            Document tempDoc = new Document();
-	            tempDoc.add(new TextField("sentence", s, Field.Store.YES));
+	            tempDoc.add(new TextField("sentence", s+".", Field.Store.YES));
 	            subWriter.addDocument(tempDoc);
 	            sno++;
 	        }
 
 			if(sno == 0) {
-//				Field field = new TextField("summary", "", Field.Store.YES);
-//				doc.add(field);
-				//subWriter.addDocument(doc);
-				//subWriter.close();
+				Field field = new TextField("summary", null, Field.Store.YES);
+				toAddDoc.add(field);
+				mainWriter.addDocument(toAddDoc);
 				continue;
 			}
 			
@@ -425,8 +424,8 @@ public class ReutersIndexer {
 			
 			if((titleField != null) && (!titleField.stringValue().isEmpty())) {
 
-				Query q = parser.createPhraseQuery("sentence", titleField.stringValue());
-			    DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
+				Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
+				DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
 			    IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
 			    if(sno >= 2) {
 			    	n = 2;
@@ -440,11 +439,14 @@ public class ReutersIndexer {
 			    }
 			} else {
 				//2 primeras frases body
-				summary += "";
+				for(int i=0; i<sno; i++) {
+					if(i==2) break;
+					summary += sentences[i];
+				}
 			}
-				Field field = new TextField("summary", summary, Field.Store.YES);
-				doc.add(field);
-				mainWriter.addDocument(doc);
+			Field field = new TextField("summary", summary, Field.Store.YES);
+				toAddDoc.add(field);
+				mainWriter.addDocument(toAddDoc);
 				subWriter.close();
 		}
 		mainWriter.close();
