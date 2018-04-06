@@ -383,19 +383,18 @@ public class ReutersIndexer {
 		iwc.setRAMBufferSizeMB(512.0);
 
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
-		String tempPath = indexOut+"\\tmp";
-		Directory RAMDir = FSDirectory.open(Paths.get(indexOut));
-		Analyzer subAnalyzer = new StandardAnalyzer();
-		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
-		iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
-		iwc.setRAMBufferSizeMB(512.0);
 		
 		for(int i=0; i<indexReader.numDocs(); i++) {
-		
+			System.out.println("Indexing doc. no:" + i);
+			//String tempPath = indexOut+"\\tmp";
+			Directory RAMDir = new RAMDirectory();//.open(Paths.get(indexOut));
+			Analyzer subAnalyzer = new StandardAnalyzer();
+			IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
 			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
+			
 			Document doc = indexReader.document(i);
 			IndexableField body = doc.getField("body");
-	        SentenceTokenizer sentenceTokenizer= new SentenceTokenizer();
+	        SentenceTokenizer sentenceTokenizer = new SentenceTokenizer();
 	        sentenceTokenizer.setText(body.stringValue());
 	        String[] sentences = sentenceTokenizer.getSentences();
 	        int sno = 0;
@@ -415,34 +414,36 @@ public class ReutersIndexer {
 				subWriter.close();
 				continue;
 			}
+			
 	        QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
-	        try {
-	        	int n = 2;
-				Query q = parser.parse(doc.getField("title").stringValue());
-				Directory tempDir = FSDirectory.open(Paths.get(tempPath));
-		        DirectoryReader subIndexReader = DirectoryReader.open(tempDir);
-		        IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
-		        if(sno == 1) {
-		        	n = 1;
-		        }
-		        TopDocs td = indexSearcher.search(q, n);
-		        ScoreDoc[] sd = td.scoreDocs;
-		        String summary = "";
-		        for(ScoreDoc d: sd) {
-		        	Document dd = subIndexReader.document(d.doc);
-		        	summary += dd.getField("sentence").stringValue();
-		        }
-		        
+	        
+	        int n = sno;
+			String summary = "";
+			IndexableField titleField = doc.getField("title");
+			System.out.println(titleField.stringValue());
+			
+			if((titleField != null) && (!titleField.stringValue().isEmpty())) {
+				Query q = parser.createPhraseQuery("body", titleField.stringValue());
+				//Query q = parser.parse(titleField.stringValue().replace("/", "\\/").replace("}", "\\}").replace("-", "\\-").replace(" ", " "));
+			    DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
+			    IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+			    if(sno >= 2) {
+			    	n = 2;
+			    }
+			    TopDocs td = indexSearcher.search(q, n);
+			    ScoreDoc[] sd = td.scoreDocs;
+			    
+			    for(ScoreDoc d: sd) {
+			    	Document dd = subIndexReader.document(d.doc);
+			    	summary += dd.getField("sentence").stringValue();
+			    }
+			} else {
+				summary += "";
+			}
 				Field field = new TextField("summary", summary, Field.Store.YES);
 				doc.add(field);
 				mainWriter.addDocument(doc);
 				subWriter.close();
-
-			} catch (org.apache.lucene.queryparser.classic.ParseException e) {
-				System.err.println(e.getMessage());
-				System.exit(-1);
-			}
-	        
 		}
 		mainWriter.close();
 	}

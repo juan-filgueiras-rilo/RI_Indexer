@@ -12,7 +12,7 @@ public class SentenceTokenizer {
     }
 
     public String[] getSentences() {
-        return text.split("\\.");
+        return text.split("\n");
     }
 
 }
