@@ -424,6 +424,7 @@ public class ReutersIndexer {
 			
 			if((titleField != null) && (!titleField.stringValue().isEmpty())) {
 				Query q = parser.createPhraseQuery("body", titleField.stringValue());
+				
 				//Query q = parser.parse(titleField.stringValue().replace("/", "\\/").replace("}", "\\}").replace("-", "\\-").replace(" ", " "));
 			    DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
 			    IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
