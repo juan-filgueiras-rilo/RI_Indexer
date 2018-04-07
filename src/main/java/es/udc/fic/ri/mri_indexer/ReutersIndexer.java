@@ -95,17 +95,13 @@ public class ReutersIndexer {
 	
 	/** Index all text files under a directory. 
 	 **/
-	public static void main(String[] args) {
-		String usage = "java org.apache.lucene.demo.IndexFiles" + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update]\n\n"
-				+ "This indexes the documents in DOCS_PATH, creating a Lucene index"
-				+ "in INDEX_PATH that can be searched with SearchFiles";
-		
-		//String indexPath = "D:\\RI\\index";
-		String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\indexIn";
-		//String docsPath = "D:\\RI\\reuters21578";
-		String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
-		//String indexOut = "D:\\RI\\index\\summaries";
-		String indexOut = "D:\\UNI\\3º\\Recuperación de la Información\\indexOut";
+	public static void main(String[] args) {		
+		String indexPath = "D:\\RI\\index";
+		//String indexPath = "D:\\UNI\\3º\\Recuperación de la Información\\indexIn";
+		String docsPath = "D:\\RI\\reuters21578";
+		//String docsPath = "D:\\UNI\\3º\\Recuperación de la Información\\Práctica 2\\reuters21578";
+		String indexOut = "D:\\RI\\summaries";
+		//String indexOut = "D:\\UNI\\3º\\Recuperación de la Información\\indexOut";
 		OpenMode modo = OpenMode.CREATE_OR_APPEND;
 		boolean multithread = false;
 		boolean addindexes = false;
@@ -113,12 +109,16 @@ public class ReutersIndexer {
 		boolean bestIdfTerms = false;
 		boolean tfPos = false;
 		boolean termstfpos1 = false;
+		boolean termstfpos2 = false;
 		boolean deldocsterm = false;
 		boolean deldocsquery = false;
+		
 		boolean summaries = false;
 		String termName = "said";
 		String fieldName = "body";
-		String query = "";
+		String query = "cocoa";
+		String pathName = "D:\\RI\\reuters21578\\0-4\\reut2-000.sgm";
+		String newID = "12222";
 		int bestN = 10;
 		int docID = 0;
 		Ord ord = Ord.ALF;
@@ -133,7 +133,7 @@ public class ReutersIndexer {
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -index.\n " + usage);
+					System.err.println("Wrong option -index.\n ");
 					System.exit(-1);
 				}
 			case("-coll"):
@@ -143,7 +143,7 @@ public class ReutersIndexer {
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -coll.\n " + usage);
+					System.err.println("Wrong option -coll.\n ");
 					System.exit(-1);
 				}
 			case("-openmode"):	
@@ -156,13 +156,13 @@ public class ReutersIndexer {
 						break;
 					case "create_or_append": modo = OpenMode.CREATE_OR_APPEND;
 						break;
-					default: System.err.println("Wrong option -openmode.\n " + usage);
+					default: System.err.println("Wrong option -openmode.\n ");
 						System.exit(-1);
 					}
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -openmode.\n " + usage);
+					System.err.println("Wrong option -openmode.\n ");
 					System.exit(-1);
 				}
 			case("-multithread"):
@@ -181,7 +181,7 @@ public class ReutersIndexer {
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -indexin.\n " + usage);
+					System.err.println("Wrong option -indexin.\n ");
 					System.exit(-1);
 				}
 			case("-indexout"):
@@ -191,7 +191,7 @@ public class ReutersIndexer {
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -indexout.\n " + usage);
+					System.err.println("Wrong option -indexout.\n ");
 					System.exit(-1);
 				}
 			case("-best_idfterms"):
@@ -202,13 +202,13 @@ public class ReutersIndexer {
 					try {
 						bestN = Integer.parseInt(args[i+2]);
 					} catch (NumberFormatException e) {
-						System.err.println("Error while parsing the number of best n_terms\n " + usage);
+						System.err.println("Error while parsing number of best n_terms\n ");
 						System.exit(-1);
 					}
 					i+=2;
 					break;
 				} else {
-					System.err.println("Wrong option -best_idfterms.\n " + usage);
+					System.err.println("Wrong option -best_idfterms.\n ");
 					System.exit(-1);
 				}
 			case("-tfpos"):
@@ -222,7 +222,7 @@ public class ReutersIndexer {
 					i+=2;
 					break;
 				} else {
-					System.err.println("Wrong option -tfpos.\n " + usage);
+					System.err.println("Wrong option -tfpos.\n ");
 					System.exit(-1);
 				}
 			case("-termstfpos1"):
@@ -232,7 +232,7 @@ public class ReutersIndexer {
 					try {
 						docID = Integer.parseInt(args[i+1]);
 					} catch (NumberFormatException e) {
-						System.err.println("Error while parsing the given Lucene docID\n " + usage);
+						System.err.println("Error while parsing the given Lucene docID\n ");
 						System.exit(-1);
 					}
 					fieldName = args[i+2];
@@ -246,15 +246,40 @@ public class ReutersIndexer {
 					case(2):
 						ord = Ord.DF_DEC;
 					break;
-					default: System.err.println("Wrong option -termstfpos1 <ord>.\n " + usage);
+					default: System.err.println("Wrong option -termstfpos1 <ord>.\n ");
 						System.exit(-1);
 					}
 					i+=3;
 					break;
 				} else {
-					System.err.println("Wrong option -termstfpos1.\n " + usage);
+					System.err.println("Wrong option -termstfpos1.\n ");
 					System.exit(-1);
 				}
+			case("-termstfpos2"):
+				setOpIfNone(IndexOperation.PROCESS);
+				termstfpos2 = true;
+				if(args.length-1 >= i+4) {
+					pathName = args[++i];
+					newID = args[++i];
+					fieldName = args[++i];
+					switch(Integer.parseInt(args[++i])) {
+					case(0):
+						ord = Ord.ALF;
+					break;
+					case(1):
+						ord = Ord.TF_DEC;
+					break;
+					case(2):
+						ord = Ord.DF_DEC;
+					break;
+					default: System.err.println("Wrong option -termstfpos2 <ord>.\n ");
+						System.exit(-1);
+					}
+					break;
+				} else {
+					System.err.println("Wrong option -termstfpos2.\n ");
+					System.exit(-1);
+				}	
 			case("-deldocsterm"):
 				setOpIfNone(IndexOperation.PROCESS);
 				if(args.length-1 >= i+2){
@@ -262,7 +287,7 @@ public class ReutersIndexer {
 					termName = args[++i];
 					deldocsterm = true;
 				} else {
-					System.err.println("Wrong option -deldocsterm.\n " + usage);
+					System.err.println("Wrong option -deldocsterm.\n ");
 					System.exit(-1);
 				}
 				break;
@@ -272,7 +297,7 @@ public class ReutersIndexer {
 					query = args[++i];
 					deldocsquery = true;
 				} else {
-					System.err.println("Wrong option -deldocsquery.\n " + usage);
+					System.err.println("Wrong option -deldocsquery.\n ");
 					System.exit(-1);
 				}
 				break;
@@ -281,7 +306,7 @@ public class ReutersIndexer {
 				if(args.length-1 >= i){
 					summaries = true;
 				} else {
-					System.err.println("Wrong option -summaries.\n " + usage);
+					System.err.println("Wrong option -summaries.\n ");
 					System.exit(-1);
 				}
 				break;
@@ -329,40 +354,53 @@ public class ReutersIndexer {
 					
 					if (deldocsterm){
 						deleteDocsByTerm(fieldName, termName, dir);
-					}
-
-					DirectoryReader indexReader;
-					indexReader = DirectoryReader.open(dir);
-					if (deldocsquery){
-						deleteDocsByQuery(query, dir, indexReader);
+					}					
+					if (deldocsquery) {
+						deleteDocsByQuery(query, dir);
 					}
 					if(bestIdfTerms) {
-						calculateBestIdfTerms(fieldName, bestN, indexReader);
+						calculateBestIdfTerms(fieldName, bestN, dir);
 					}
 					if(tfPos) {
-						createTfPosList(fieldName, termName, indexReader);
+						createTfPosList(fieldName, termName, dir);
 					}
 					if(termstfpos1) {
-						List<TermData> termsList = createTermTfPosList(docID, fieldName, indexReader);
+						List<TermData> termsList1 = createTermTfPosList1(docID, fieldName, dir);
 						switch (ord) {
 							case ALF:
 								break;
 							case DF_DEC:
-								termsList.sort(TermData::compareByDocFreq);
+								termsList1.sort(TermData::compareByDocFreq);
 								break;
 							case TF_DEC:
-								termsList.sort(TermData::compareByTermFreq);
+								termsList1.sort(TermData::compareByTermFreq);
 								break;
 						}
-						for(TermData t: termsList) {
+						for(TermData t: termsList1) {
+							System.out.println(t.toString());
+							System.out.println("-----------------------------------------");
+						}
+					}
+					if(termstfpos2) {
+						List<TermData> termsList2 = createTermTfPosList2(newID, pathName, fieldName, dir);
+						switch (ord) {
+							case ALF:
+								break;
+							case DF_DEC:
+								termsList2.sort(TermData::compareByDocFreq);
+								break;
+							case TF_DEC:
+								termsList2.sort(TermData::compareByTermFreq);
+								break;
+						}
+						for(TermData t: termsList2) {
 							System.out.println(t.toString());
 							System.out.println("-----------------------------------------");
 						}
 					}
 					if(summaries) {
-						createIndexWithSummaries(indexReader, indexOut);
+						createIndexWithSummaries(dir, indexOut);
 					}
-					indexReader.close();
 				} catch (CorruptIndexException | ParseException e1) {
 					System.err.println("Graceful message: exception " + e1);
 					e1.printStackTrace();
@@ -374,7 +412,10 @@ public class ReutersIndexer {
 		}
 	}
 
-	private static void createIndexWithSummaries(DirectoryReader indexReader, String indexOut) throws IOException {
+	private static void createIndexWithSummaries(Directory dir, String indexOut) throws IOException {
+		
+		DirectoryReader indexReader;
+		indexReader = DirectoryReader.open(dir);
 		
 		Directory outDir = FSDirectory.open(Paths.get(indexOut));
 		Analyzer analyzer = new StandardAnalyzer();
@@ -403,7 +444,7 @@ public class ReutersIndexer {
 	        
 	        for (String s:sentences) {
 	            Document tempDoc = new Document();
-	            tempDoc.add(new TextField("sentence", s+".", Field.Store.YES));
+	            tempDoc.add(new TextField("sentence", s+". ", Field.Store.YES));
 	            subWriter.addDocument(tempDoc);
 	            sno++;
 	        }
@@ -467,14 +508,14 @@ public class ReutersIndexer {
 		System.out.println("Done.");
 	}
 
-	private static void deleteDocsByQuery(String query, Directory dir, DirectoryReader indexReader) throws IOException, ParseException {
+	private static void deleteDocsByQuery(String query, Directory dir) throws IOException, ParseException {
 
 		Analyzer analyzer = new StandardAnalyzer();
 		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
 		iwc.setOpenMode(OpenMode.APPEND);
 		iwc.setRAMBufferSizeMB(512.0);
 		
-		String[] fields = {"topics","title","dateline","body","date"};
+		String[] fields = {"topics","title","dateline","body","date","oldid","newid"};
 		
 		QueryParser parser = new MultiFieldQueryParser(fields, analyzer);
 		Query q;
@@ -490,17 +531,43 @@ public class ReutersIndexer {
 		}
 	}
 
-	private static List<TermData> createTermTfPosList(int docID, String fieldName, DirectoryReader indexReader) throws IOException {
+	private static List<TermData> createTermTfPosList2(String pathName, String newID, String fieldName, Directory dir) throws IOException {
+		
+		DirectoryReader indexReader;
+		indexReader = DirectoryReader.open(dir);
+		Document doc = null;
+		List<TermData> termsList = null;
+		
+		for(int docID=0; docID < indexReader.numDocs(); docID++) {
+			doc = indexReader.document(docID);
+			final IndexableField pathField = doc.getField("path");
+			final IndexableField newIDField = doc.getField("newid");
+			if (pathField.stringValue().equals(pathName) && newIDField.stringValue().equals(newID)) {
+				termsList = createTermTfPosList1(docID, fieldName, dir);
+			}
+			
+		}
+		return termsList;
+	}
+	
+	private static List<TermData> createTermTfPosList1(int docID, String fieldName, Directory dir) throws IOException {
 
 		Document doc = null;
 		Terms terms = null;
 		BytesRef term = null;
 		IndexableField path = null;
+		IndexableField oldID = null;
+		IndexableField newID = null;
 		List<Integer> positionList;
 		List<TermData> termsList = new ArrayList<>();
 
+		DirectoryReader indexReader;
+		indexReader = DirectoryReader.open(dir);
+		
 		doc = indexReader.document(docID);
 		path = doc.getField("path");
+		oldID = doc.getField("oldid");
+		newID = doc.getField("newid");
 		terms = indexReader.getTermVector(docID, fieldName);
 
 		if(terms != null) {
@@ -549,13 +616,17 @@ public class ReutersIndexer {
 		System.out.println("Document ID nº " + docID + ":");
 		System.out.println("Field: "+ fieldName);
 		System.out.println("Path: " + path.stringValue());
+		System.out.println("OldID: " + oldID.stringValue());
+		System.out.println("NewID: " + newID.stringValue());
 		System.out.println("Terms");
 		System.out.println("-----------------------------------------");
 		return termsList;
 	}
 	
-	private static void createTfPosList(String fieldName, String termName, DirectoryReader indexReader) throws IOException {
+	private static void createTfPosList(String fieldName, String termName, Directory dir) throws IOException {
 		
+		DirectoryReader indexReader;
+		indexReader = DirectoryReader.open(dir);
 		Document doc = null;
 		Term term = new Term(fieldName, termName);
 		int docID;
@@ -570,6 +641,8 @@ public class ReutersIndexer {
 					doc = leafReader.document(docID);
 					System.out.println("Document ID: " + postings.docID());
 					System.out.println("Indexed from: " + doc.getField("path").stringValue());
+					System.out.println("Doc OldID: " + doc.getField("oldid").stringValue());
+					System.out.println("Doc NewID: " + doc.getField("newid").stringValue());
 					int freq = postings.freq();
 					System.out.println("Term Frequency: " + freq);
 					//Posiciones
@@ -586,8 +659,10 @@ public class ReutersIndexer {
 		}
 	}
 	
-	private static void calculateBestIdfTerms(String fieldName, int bestN, DirectoryReader indexReader) throws IOException {
+	private static void calculateBestIdfTerms(String fieldName, int bestN, Directory dir) throws IOException {
 		
+		DirectoryReader indexReader;
+		indexReader = DirectoryReader.open(dir);
 		int docCount = indexReader.numDocs();
 		TFIDFSimilarity similarity = new ClassicSimilarity();
 		System.out.println("Size of  indexReader.leaves() = " + indexReader.leaves().size());
@@ -646,7 +721,7 @@ public class ReutersIndexer {
 					final Runnable worker;
 					if(addindexes) {
 						Directory subIndexPath = FSDirectory.open(Paths.get(indexPath,
-							docDir.relativize(subDocDir).toString()));
+								docDir.relativize(subDocDir).toString()));
 						worker = new WorkerThread(subDocDir, subIndexPath, modo, writer);
 					}
 					else 
@@ -762,6 +837,11 @@ public class ReutersIndexer {
 				Field body = new Field("body", parsedDoc.get(1), t);
 				doc.add(body);
 				
+				Field oldID = new StringField("oldid", parsedDoc.get(5), Field.Store.YES);
+				doc.add(oldID);
+				
+				Field newID = new StringField("newid", parsedDoc.get(6), Field.Store.YES);
+				doc.add(newID);
 				//26-FEB-1987 15:01:01.79
 				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);
 				Date date = dateFormat.parse(parsedDoc.get(3));

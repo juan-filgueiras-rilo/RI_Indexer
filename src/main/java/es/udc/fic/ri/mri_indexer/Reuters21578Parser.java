@@ -88,7 +88,15 @@ public class Reuters21578Parser {
 		/* Each topic inside TOPICS is identified with a tag D */
 		/* If the BODY ends with boiler plate text, this text is removed */
 
-//		String reuters = extract("REUTERS", text, true);
+		String reuters = text.split("\n")[0];
+		//OLDID="403" NEWID="12175"
+		int oldIDstart = reuters.indexOf("OLDID=\"") + 7;
+		int oldIDfinish = reuters.indexOf("\"", oldIDstart);
+		String oldID = reuters.substring(oldIDstart, oldIDfinish);
+		int newIDstart = reuters.indexOf("NEWID=\"") + 7;
+		int newIDfinish = reuters.indexOf("\"", newIDstart);
+		String newID = reuters.substring(newIDstart, newIDfinish);
+		//System.out.println(reuters + "\t" + oldID + "\t" + newID);
 		String topics = extract("TOPICS", text, true);
 		String title = extract("TITLE", text, true);
 		String dateline = extract("DATELINE", text, true);
@@ -105,6 +113,8 @@ public class Reuters21578Parser {
 				""));
 		document.add(date);
 		document.add(dateline);
+		document.add(oldID);
+		document.add(newID);
 		return document;
 	}
 
