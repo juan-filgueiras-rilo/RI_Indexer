@@ -478,6 +478,13 @@ public class ReutersIndexer {
 			    	Document dd = subIndexReader.document(d.doc);
 			    	summary += dd.getField("sentence").stringValue();
 			    }
+			    if (sd.length == 0) {
+			    	//2 primeras frases body
+					for(int i=0; i<sno; i++) {
+						if(i==2) break;
+						summary += sentences[i];
+					}
+			    }
 			} else {
 				//2 primeras frases body
 				for(int i=0; i<sno; i++) {
