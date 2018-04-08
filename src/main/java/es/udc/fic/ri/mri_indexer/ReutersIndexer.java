@@ -32,6 +32,7 @@ import org.apache.lucene.document.DateTools.Resolution;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
+import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.CorruptIndexException;
@@ -42,6 +43,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.index.IndexableFieldType;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -55,6 +57,7 @@ import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.MultiFields;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
@@ -63,6 +66,17 @@ import org.apache.lucene.search.similarities.ClassicSimilarity;
 
 public class ReutersIndexer {
 	
+	private static FieldType getCustomFieldType() {
+		FieldType t = new FieldType();
+		t.setTokenized(true);
+		t.setStored(true);
+		t.setStoreTermVectors(true);
+		t.setStoreTermVectorOffsets(true);
+		t.setStoreTermVectorPositions(true);
+		t.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+		t.freeze();
+		return t;
+	}
 	private static final String ADDED_INDEX_DIR = "\\addedIndex";
 	private enum IndexOperation {
 		NONE,
@@ -75,10 +89,15 @@ public class ReutersIndexer {
 		DF_DEC;
 	}
 	private static IndexOperation OP = IndexOperation.NONE;
-	private static void setOpIfNone(IndexOperation op) {
+	private static boolean setOpIfNone(IndexOperation op) {
 		if(ReutersIndexer.OP.equals(IndexOperation.NONE)) {
 			ReutersIndexer.OP = op;
+			return true;
 		}
+		if(ReutersIndexer.OP.equals(op)) {
+			return true;
+		}
+		return false;
 	}
     public static <K, V extends Comparable<? super V>> Map<K, V> sortByValue(Map<K, V> map) {
         List<Entry<K, V>> list = new ArrayList<>(map.entrySet());
@@ -163,15 +182,21 @@ public class ReutersIndexer {
 					i++;
 					break;
 				} else {
-					System.err.println("Wrong option -openmode.\n ");
+					System.err.println("Missing arg for -openmode.\n ");
 					System.exit(-1);
 				}
 			case("-multithread"):
 				try {
 					numTotalThreads = Integer.parseInt(args[i + 1]);
-					setOpIfNone(IndexOperation.PROCESS);
+					if(!setOpIfNone(IndexOperation.PROCESS)) {
+						System.err.println("Wrong option -multithread.\n ");
+						System.exit(-1);
+					}
 				} catch (IndexOutOfBoundsException | NumberFormatException e1){
-					setOpIfNone(IndexOperation.CREATE);
+					if(!setOpIfNone(IndexOperation.CREATE)) {
+						System.err.println("Wrong option -multithread.\n ");
+						System.exit(-1);
+					}
 				}
 				multithread = true;
 				break;
@@ -406,36 +431,141 @@ public class ReutersIndexer {
 					}
 					if(summaries) {
 						if(multithread) {
-							int i;
-							final ExecutorService executor = Executors.newFixedThreadPool(numTotalThreads);
-							for (i=0; i<numTotalThreads;i++){
-								final Runnable worker = new SummaryThread(dir, indexOut, i, numTotalThreads);
-								executor.execute(worker);
-							}
-							executor.shutdown();
-							try {
-								executor.awaitTermination(5, TimeUnit.MINUTES);
-							} catch (final InterruptedException e) {
-								e.printStackTrace();
-								System.exit(-2);
-							}
-							System.out.println("Finished all threads");
+							startThreads(indexOut, dir, numTotalThreads);
 						} else {
-							createIndexWithSummaries(dir, indexOut,false,0,numTotalThreads);
+							createIndexWithSummaries(dir, indexOut);
 						}
 					}
-				} catch (CorruptIndexException | ParseException e1) {
-					System.err.println("Graceful message: exception " + e1);
-					e1.printStackTrace();
+				} catch (CorruptIndexException | ParseException e) {
+					System.err.println("Graceful message: exception " + e);
+					e.printStackTrace();
 				}
 			}
 		} catch (IOException e) {
-			System.out.println(" caught a " + e.getClass() +
-					"\n with message: " + e.getMessage());
+			System.err.println("Caught a " + e.getClass() + " with message: " + e.getMessage());
+			e.printStackTrace();
 		}
 	}
+	
+	private static void summarize(int numDoc, DirectoryReader indexReader, IndexWriter mainWriter) throws IOException {
 
-	public static void createIndexWithSummaries(Directory dir, String indexOut, Boolean multithread, int numThread, int numTotalThread) throws IOException {
+		Directory RAMDir = new RAMDirectory();
+		Analyzer subAnalyzer = new StandardAnalyzer();
+		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
+		IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
+
+		Document doc = indexReader.document(numDoc);
+		Document toAddDoc = new Document();
+
+		List <IndexableField> fields = doc.getFields();
+		for(IndexableField field: fields) {
+			String content = field.stringValue();
+			Field newField;
+			if(field.name().equals("path") || field.name().equals("dateline")) {
+				newField = new StringField(field.name(), content, Field.Store.YES);
+			} else if (field.name().equals("topics") || field.name().equals("title") || field.name().equals("oldid") || field.name().equals("newid")) {
+				newField = new TextField(field.name(), content, Field.Store.YES);
+			} else {
+				newField = new Field(field.name(), content, ReutersIndexer.getCustomFieldType());
+			}
+			
+			toAddDoc.add(newField);
+		}
+		
+		Field thread = new StringField("thread", Thread.currentThread().getName(), Field.Store.NO);
+		toAddDoc.add(thread);
+		
+		Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
+		toAddDoc.add(hostname);
+		
+		IndexableField body = doc.getField("body");
+		String[] sentences = body.stringValue().split("\\.");
+		int sno = 0;
+
+		for (String s : sentences) {
+			Document tempDoc = new Document();
+			tempDoc.add(new TextField("sentence", s + ". ", Field.Store.YES));
+			subWriter.addDocument(tempDoc);
+			sno++;
+		}
+
+//		if (sno == 0) {
+//			Field field = new TextField("summary", null, Field.Store.YES);
+//			toAddDoc.add(field);
+//			mainWriter.addDocument(toAddDoc);
+//			continue;
+//		}
+
+		QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
+
+		int n = sno;
+		String summary = "";
+		IndexableField titleField = doc.getField("title");
+
+		if ((titleField != null) && (!titleField.stringValue().isEmpty())) {
+
+			Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
+			DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
+			IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+			if (sno >= 2) {
+				n = 2;
+			}
+			TopDocs td = indexSearcher.search(q, n);
+			ScoreDoc[] sd = td.scoreDocs;
+
+			for (ScoreDoc d : sd) {
+				Document dd = subIndexReader.document(d.doc);
+				summary += dd.getField("sentence").stringValue();
+			}
+			if (sd.length == 0) {
+				//2 primeras frases body
+				for (int i = 0; i < sno; i++) {
+					if (i == 2) break;
+					summary += sentences[i];
+				}
+			}
+		} else {
+			//2 primeras frases body
+			for (int i = 0; i < sno; i++) {
+				if (i == 2) break;
+				summary += sentences[i];
+			}
+		}
+		Field field = new TextField("summary", summary, Field.Store.YES);
+		toAddDoc.add(field);
+		mainWriter.addDocument(toAddDoc);
+		subWriter.close();
+	}
+
+	public static void startThreads(String indexOut, Directory dir, int numTotalThreads) throws IOException {
+		
+		int i;
+		final ExecutorService executor = Executors.newFixedThreadPool(numTotalThreads);
+		Directory outDir = FSDirectory.open(Paths.get(indexOut));
+		DirectoryReader indexReader = DirectoryReader.open(dir);
+        Analyzer analyzer = new StandardAnalyzer();
+		IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+		iwc.setOpenMode(OpenMode.CREATE);
+		iwc.setRAMBufferSizeMB(512.0);
+		IndexWriter indexOutWriter = new IndexWriter(outDir, iwc);
+		
+		for (i=0; i < numTotalThreads; i++){
+			final Runnable worker = new SummaryThread(indexReader, indexOutWriter, i, numTotalThreads);
+			executor.execute(worker);
+		}
+		executor.shutdown();
+		try {
+			executor.awaitTermination(5, TimeUnit.MINUTES);
+		} catch (final InterruptedException e) {
+			e.printStackTrace();
+			System.exit(-2);
+		}
+		System.out.println("Finished all threads");
+		indexOutWriter.close();
+		indexReader.close();
+	}
+	
+	public static void createIndexWithSummaries(Directory dir, String indexOut) throws IOException {
 		
 		DirectoryReader indexReader;
 		indexReader = DirectoryReader.open(dir);
@@ -449,84 +579,18 @@ public class ReutersIndexer {
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
 		
 		for(int numDoc=0; numDoc<indexReader.numDocs(); numDoc++) {
-			if ((!multithread) || (multithread && (numDoc % numTotalThread) == numThread)) {
-				if (multithread){
-					System.out.println("Indexing doc. no: " + numDoc + " with number Thread " + numThread);
-				} else {
-					System.out.println("Indexing doc. no: " + numDoc);
-				}
-				//String tempPath = indexOut+"\\tmp";
-				Directory RAMDir = new RAMDirectory();//.open(Paths.get(indexOut));
-				Analyzer subAnalyzer = new StandardAnalyzer();
-				IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
-				IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
-
-				Document doc = indexReader.document(numDoc);
-				Document toAddDoc = new Document();
-
-				IndexableField body = doc.getField("body");
-				SentenceTokenizer sentenceTokenizer = new SentenceTokenizer();
-				sentenceTokenizer.setText(body.stringValue());
-				String[] sentences = sentenceTokenizer.getSentences();
-				int sno = 0;
-
-				for (String s : sentences) {
-					Document tempDoc = new Document();
-					tempDoc.add(new TextField("sentence", s + ". ", Field.Store.YES));
-					subWriter.addDocument(tempDoc);
-					sno++;
-				}
-
-				if (sno == 0) {
-					Field field = new TextField("summary", null, Field.Store.YES);
-					toAddDoc.add(field);
-					mainWriter.addDocument(toAddDoc);
-					continue;
-				}
-
-				QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
-
-				int n = sno;
-				String summary = "";
-				IndexableField titleField = doc.getField("title");
-				System.out.println(titleField.stringValue());
-
-				if ((titleField != null) && (!titleField.stringValue().isEmpty())) {
-
-					Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
-					DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
-					IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
-					if (sno >= 2) {
-						n = 2;
-					}
-					TopDocs td = indexSearcher.search(q, n);
-					ScoreDoc[] sd = td.scoreDocs;
-
-					for (ScoreDoc d : sd) {
-						Document dd = subIndexReader.document(d.doc);
-						summary += dd.getField("sentence").stringValue();
-					}
-					if (sd.length == 0) {
-						//2 primeras frases body
-						for (int i = 0; i < sno; i++) {
-							if (i == 2) break;
-							summary += sentences[i];
-						}
-					}
-				} else {
-					//2 primeras frases body
-					for (int i = 0; i < sno; i++) {
-						if (i == 2) break;
-						summary += sentences[i];
-					}
-				}
-				Field field = new TextField("summary", summary, Field.Store.YES);
-				toAddDoc.add(field);
-				mainWriter.addDocument(toAddDoc);
-				subWriter.close();
-			}
+			System.out.println("Indexing doc. no: " + numDoc);
+			summarize(numDoc, indexReader, mainWriter);
 		}
 		mainWriter.close();
+	}
+	
+	public static void createIndexWithSummaries(SummaryThread thread) throws IOException {
+		
+		for(int numDoc = thread.getThreadNumber(); numDoc < thread.getIndexReader().numDocs(); numDoc+=thread.getNumTotalThreads()) {
+			System.out.println("Indexing doc. no: " + numDoc + " with thread nº" + thread.getThreadNumber());
+			summarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
+		}
 	}
 	
 	private static void deleteDocsByTerm(String fieldName, String termName, Directory dir) throws IOException {
@@ -621,31 +685,27 @@ public class ReutersIndexer {
 				termsList.add(new TermData(term.utf8ToString(),(int)termsEnum.totalTermFreq(),indexReader.docFreq(new Term(fieldName,term)),positionList));
 			}
 		} else {
-			for (final LeafReaderContext leaf : indexReader.leaves()) {
-
-				try (LeafReader leafReader = leaf.reader()) {
-
-					terms = leafReader.fields().terms(fieldName);
-					TermsEnum termsEnum = terms.iterator();
-					while ((termsEnum.next() != null)) {
-						final String tt = termsEnum.term().utf8ToString();
-						final PostingsEnum postings = leafReader.postings(new Term(fieldName, tt), PostingsEnum.ALL);
-						int whereDoc;
-						while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-							if(whereDoc == docID) {
-								break;
-							}
-							postings.nextDoc();
-						}
-						if (whereDoc == docID) {
-							positionList = new ArrayList<>();
-							for (int i=postings.freq(); i>0; i--) {
-								int pos = postings.nextPosition();
-								positionList.add(pos);
-							}
-							termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
-						}
+			
+			terms = MultiFields.getTerms(indexReader, fieldName);
+			TermsEnum termsEnum = terms.iterator();
+			while ((termsEnum.next() != null)) {
+				final String tt = termsEnum.term().utf8ToString();
+				final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, fieldName, new Term(fieldName, tt).bytes(),PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
+				int whereDoc;
+				
+				while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+					if(whereDoc == docID) {
+						break;
 					}
+					postings.nextDoc();
+				}
+				if (whereDoc == docID) {
+					positionList = new ArrayList<>();
+					for (int i=postings.freq(); i>0; i--) {
+						int pos = postings.nextPosition();
+						positionList.add(pos);
+					}
+					termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
 				}
 			}
 		}
@@ -667,31 +727,28 @@ public class ReutersIndexer {
 		Term term = new Term(fieldName, termName);
 		int docID;
 		
-		for (final LeafReaderContext leaf : indexReader.leaves()) {
-			
-			try (LeafReader leafReader = leaf.reader()) {
-				
-				final PostingsEnum postings = leafReader.postings(term, PostingsEnum.ALL);
-
-				while((docID = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-					doc = leafReader.document(docID);
-					System.out.println("Document ID: " + postings.docID());
-					System.out.println("Indexed from: " + doc.getField("path").stringValue());
-					System.out.println("Doc OldID: " + doc.getField("oldid").stringValue());
-					System.out.println("Doc NewID: " + doc.getField("newid").stringValue());
-					int freq = postings.freq();
-					System.out.println("Term Frequency: " + freq);
-					//Posiciones
-					System.out.print("Term at positions: ");
-					for (int i=freq; i>0; i--) {
-						int pos = postings.nextPosition();
-						System.out.print(pos + " ");
-					}
-					System.out.println("\n");
-					//df termino
+		final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, fieldName, term.bytes(), PostingsEnum.ALL);
+		try {
+			while((docID = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+				doc = indexReader.document(docID);
+				System.out.println("Document ID: " + postings.docID());
+				System.out.println("Indexed from: " + doc.getField("path").stringValue());
+				System.out.println("Doc OldID: " + doc.getField("oldid").stringValue());
+				System.out.println("Doc NewID: " + doc.getField("newid").stringValue());
+				int freq = postings.freq();
+				System.out.println("Term Frequency: " + freq);
+				//Posiciones
+				System.out.print("Term at positions: ");
+				for (int i=freq; i>0; i--) {
+					int pos = postings.nextPosition();
+					System.out.print(pos + " ");
 				}
-				System.out.println("Total DocFreq of term '" + termName + "': " + leafReader.docFreq(term));
+				System.out.println("\n");
+				//df termino
 			}
+			System.out.println("Total DocFreq of term '" + termName + "': " + indexReader.docFreq(term));
+		} catch(NullPointerException e) {
+			System.err.println("Term " + termName + " not found!");
 		}
 	}
 	
@@ -701,20 +758,10 @@ public class ReutersIndexer {
 		indexReader = DirectoryReader.open(dir);
 		int docCount = indexReader.numDocs();
 		TFIDFSimilarity similarity = new ClassicSimilarity();
-		System.out.println("Size of  indexReader.leaves() = " + indexReader.leaves().size());
+		
 		for (final LeafReaderContext leaf : indexReader.leaves()) {
-			// Print leaf number (starting from zero)
-			System.out.println("We are in the leaf number " + leaf.ord);
-
-			// Create an AtomicReader for each leaf
-			// (using, again, Java 7 try-with-resources syntax)
 			try (LeafReader leafReader = leaf.reader()) {
-			
-				// Get the fields contained in the current segment/leaf
-				final Fields fields = leafReader.fields();
-				System.out.println(
-						"Numero de campos devuelto por leafReader.fields() = " + fields.size());
-				System.out.println("Field = " + fieldName);
+				final Fields fields = leafReader.fields();				
 				final Terms terms = fields.terms(fieldName);
 				final TermsEnum termsEnum = terms.iterator();
 				Map<String, Float> termList = new LinkedHashMap<>();
@@ -725,7 +772,6 @@ public class ReutersIndexer {
 					termList.put(tt, idf);
 				}
 				termList = sortByValue(termList);
-				System.out.println(docCount);
 				Set<Entry<String, Float>> setList = termList.entrySet();
 				for (Entry<String, Float> bestTerm : setList) {
 					if (bestN == 0)
@@ -846,10 +892,6 @@ public class ReutersIndexer {
 		try (InputStream stream = Files.newInputStream(file)) {
 			List<List<String>> parsedContent = Reuters21578Parser.parseString(fileToBuffer(stream));
 			for (List<String> parsedDoc:parsedContent) {
-//			for (Iterator<List<String>> iterator = parsedContent.iterator(); iterator.hasNext();) {
-
-//				List<String> parsedDoc = iterator.next();
-				// make a new, empty document
 				Document doc = new Document();
 				
 				Field pathSgm = new StringField("path", file.toString(), Field.Store.YES);
@@ -874,9 +916,11 @@ public class ReutersIndexer {
 				doc.add(body);
 				
 				Field oldID = new StringField("oldid", parsedDoc.get(5), Field.Store.YES);
+				//Field oldID = new LongPoint("oldid", Long.parseLong(parsedDoc.get(5)));
 				doc.add(oldID);
 				
 				Field newID = new StringField("newid", parsedDoc.get(6), Field.Store.YES);
+				//Field newID = new LongPoint("newid", Long.parseLong(parsedDoc.get(6)));
 				doc.add(newID);
 				//26-FEB-1987 15:01:01.79
 				SimpleDateFormat dateFormat = new SimpleDateFormat("d-MMMM-yyyy HH:mm:ss.SS", Locale.ENGLISH);

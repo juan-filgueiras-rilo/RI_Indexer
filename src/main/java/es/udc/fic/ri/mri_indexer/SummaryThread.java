@@ -1,27 +1,45 @@
 package es.udc.fic.ri.mri_indexer;
 
-import org.apache.lucene.store.Directory;
-
 import java.io.IOException;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexWriter;
 
-public class SummaryThread implements Runnable{
+public class SummaryThread implements Runnable {
 
-    final Directory dir;
-    final String indexOut;
-    final int numTotalThreads;
-    final int i;
+    public DirectoryReader getIndexReader() {
+		return indexReader;
+	}
 
-    public SummaryThread(Directory dir, String indexOut, int i, int numTotalThreads) {
-        this.dir=dir;
-        this.indexOut=indexOut;
-        this.i=i;
-        this.numTotalThreads=numTotalThreads;
+	public IndexWriter getIndexOutWriter() {
+		return indexOutWriter;
+	}
+
+	public int getNumTotalThreads() {
+		return numTotalThreads;
+	}
+
+	public int getThreadNumber() {
+		return threadNumber;
+	}
+
+	private final DirectoryReader indexReader;
+	private final IndexWriter indexOutWriter;
+	private final int numTotalThreads;
+	private final int threadNumber;
+
+    public SummaryThread(DirectoryReader indexReader, IndexWriter indexOutWriter, int threadNumber, int numTotalThreads) throws IOException {
+    	
+        this.indexReader = indexReader;
+        this.indexOutWriter = indexOutWriter;
+        this.threadNumber = threadNumber;
+        this.numTotalThreads = numTotalThreads;
     }
 
     @Override
     public void run() {
+    	
         try {
-            ReutersIndexer.createIndexWithSummaries(dir, indexOut,false,0,numTotalThreads);
+            ReutersIndexer.createIndexWithSummaries(this);
         } catch (IOException e) {
             e.printStackTrace();
         }
