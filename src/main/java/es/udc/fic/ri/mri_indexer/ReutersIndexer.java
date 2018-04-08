@@ -121,6 +121,7 @@ public class ReutersIndexer {
 		String newID = "12222";
 		int bestN = 10;
 		int docID = 0;
+		int numTotalThreads = 0;
 		Ord ord = Ord.ALF;
 		
 		for(int i=0;i<args.length;i++) {
@@ -166,7 +167,12 @@ public class ReutersIndexer {
 					System.exit(-1);
 				}
 			case("-multithread"):
-				setOpIfNone(IndexOperation.CREATE);
+				try {
+					numTotalThreads = Integer.parseInt(args[i + 1]);
+					setOpIfNone(IndexOperation.PROCESS);
+				} catch (IndexOutOfBoundsException | NumberFormatException e1){
+					setOpIfNone(IndexOperation.CREATE);
+				}
 				multithread = true;
 				break;
 			case("-addindexes"):
@@ -399,7 +405,24 @@ public class ReutersIndexer {
 						}
 					}
 					if(summaries) {
-						createIndexWithSummaries(dir, indexOut);
+						if(multithread) {
+							int i;
+							final ExecutorService executor = Executors.newFixedThreadPool(numTotalThreads);
+							for (i=0; i<numTotalThreads;i++){
+								final Runnable worker = new SummaryThread(dir, indexOut, i, numTotalThreads);
+								executor.execute(worker);
+							}
+							executor.shutdown();
+							try {
+								executor.awaitTermination(5, TimeUnit.MINUTES);
+							} catch (final InterruptedException e) {
+								e.printStackTrace();
+								System.exit(-2);
+							}
+							System.out.println("Finished all threads");
+						} else {
+							createIndexWithSummaries(dir, indexOut,false,0,numTotalThreads);
+						}
 					}
 				} catch (CorruptIndexException | ParseException e1) {
 					System.err.println("Graceful message: exception " + e1);
@@ -412,7 +435,7 @@ public class ReutersIndexer {
 		}
 	}
 
-	private static void createIndexWithSummaries(Directory dir, String indexOut) throws IOException {
+	public static void createIndexWithSummaries(Directory dir, String indexOut, Boolean multithread, int numThread, int numTotalThread) throws IOException {
 		
 		DirectoryReader indexReader;
 		indexReader = DirectoryReader.open(dir);
@@ -426,76 +449,82 @@ public class ReutersIndexer {
 		IndexWriter mainWriter = new IndexWriter(outDir, iwc);
 		
 		for(int numDoc=0; numDoc<indexReader.numDocs(); numDoc++) {
-			System.out.println("Indexing doc. no:" + numDoc);
-			//String tempPath = indexOut+"\\tmp";
-			Directory RAMDir = new RAMDirectory();//.open(Paths.get(indexOut));
-			Analyzer subAnalyzer = new StandardAnalyzer();
-			IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
-			IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
-			
-			Document doc = indexReader.document(numDoc);
-			Document toAddDoc = new Document();
-			
-			IndexableField body = doc.getField("body");
-	        SentenceTokenizer sentenceTokenizer = new SentenceTokenizer();
-	        sentenceTokenizer.setText(body.stringValue());
-	        String[] sentences = sentenceTokenizer.getSentences();
-	        int sno = 0;
-	        
-	        for (String s:sentences) {
-	            Document tempDoc = new Document();
-	            tempDoc.add(new TextField("sentence", s+". ", Field.Store.YES));
-	            subWriter.addDocument(tempDoc);
-	            sno++;
-	        }
+			if ((!multithread) || (multithread && (numDoc % numTotalThread) == numThread)) {
+				if (multithread){
+					System.out.println("Indexing doc. no: " + numDoc + " with number Thread " + numThread);
+				} else {
+					System.out.println("Indexing doc. no: " + numDoc);
+				}
+				//String tempPath = indexOut+"\\tmp";
+				Directory RAMDir = new RAMDirectory();//.open(Paths.get(indexOut));
+				Analyzer subAnalyzer = new StandardAnalyzer();
+				IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
+				IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
 
-			if(sno == 0) {
-				Field field = new TextField("summary", null, Field.Store.YES);
-				toAddDoc.add(field);
-				mainWriter.addDocument(toAddDoc);
-				continue;
-			}
-			
-	        QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
-	        
-	        int n = sno;
-			String summary = "";
-			IndexableField titleField = doc.getField("title");
-			System.out.println(titleField.stringValue());
-			
-			if((titleField != null) && (!titleField.stringValue().isEmpty())) {
+				Document doc = indexReader.document(numDoc);
+				Document toAddDoc = new Document();
 
-				Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
-				DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
-			    IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
-			    if(sno >= 2) {
-			    	n = 2;
-			    }
-			    TopDocs td = indexSearcher.search(q, n);
-			    ScoreDoc[] sd = td.scoreDocs;
-			    
-			    for(ScoreDoc d: sd) {
-			    	Document dd = subIndexReader.document(d.doc);
-			    	summary += dd.getField("sentence").stringValue();
-			    }
-			    if (sd.length == 0) {
-			    	//2 primeras frases body
-					for(int i=0; i<sno; i++) {
-						if(i==2) break;
+				IndexableField body = doc.getField("body");
+				SentenceTokenizer sentenceTokenizer = new SentenceTokenizer();
+				sentenceTokenizer.setText(body.stringValue());
+				String[] sentences = sentenceTokenizer.getSentences();
+				int sno = 0;
+
+				for (String s : sentences) {
+					Document tempDoc = new Document();
+					tempDoc.add(new TextField("sentence", s + ". ", Field.Store.YES));
+					subWriter.addDocument(tempDoc);
+					sno++;
+				}
+
+				if (sno == 0) {
+					Field field = new TextField("summary", null, Field.Store.YES);
+					toAddDoc.add(field);
+					mainWriter.addDocument(toAddDoc);
+					continue;
+				}
+
+				QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
+
+				int n = sno;
+				String summary = "";
+				IndexableField titleField = doc.getField("title");
+				System.out.println(titleField.stringValue());
+
+				if ((titleField != null) && (!titleField.stringValue().isEmpty())) {
+
+					Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
+					DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
+					IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+					if (sno >= 2) {
+						n = 2;
+					}
+					TopDocs td = indexSearcher.search(q, n);
+					ScoreDoc[] sd = td.scoreDocs;
+
+					for (ScoreDoc d : sd) {
+						Document dd = subIndexReader.document(d.doc);
+						summary += dd.getField("sentence").stringValue();
+					}
+					if (sd.length == 0) {
+						//2 primeras frases body
+						for (int i = 0; i < sno; i++) {
+							if (i == 2) break;
+							summary += sentences[i];
+						}
+					}
+				} else {
+					//2 primeras frases body
+					for (int i = 0; i < sno; i++) {
+						if (i == 2) break;
 						summary += sentences[i];
 					}
-			    }
-			} else {
-				//2 primeras frases body
-				for(int i=0; i<sno; i++) {
-					if(i==2) break;
-					summary += sentences[i];
 				}
-			}
-			Field field = new TextField("summary", summary, Field.Store.YES);
+				Field field = new TextField("summary", summary, Field.Store.YES);
 				toAddDoc.add(field);
 				mainWriter.addDocument(toAddDoc);
 				subWriter.close();
+			}
 		}
 		mainWriter.close();
 	}
