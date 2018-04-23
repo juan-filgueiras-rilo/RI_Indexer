@@ -351,6 +351,7 @@ public class ReutersIndexer {
 		}
 
 		Date start = new Date();
+		Date end = null;
 		try {
 			if(ReutersIndexer.OP.equals(IndexOperation.CREATE)) {
 				final Path docDir = Paths.get(docsPath);
@@ -358,7 +359,7 @@ public class ReutersIndexer {
 					System.out.println("Document directory '" +docDir.toAbsolutePath()+ "' does not exist or is not readable, please check the path");
 					System.exit(1);
 				}
-				Date end = null;
+				
 				//Añado ruta de addIndexes para poder crear el writer principal antes de trabajar en las subcarpetas de mismo nivel.
 				if(multithread && addindexes)
 					indexPath = indexPath.concat(ReutersIndexer.ADDED_INDEX_DIR);
@@ -379,10 +380,6 @@ public class ReutersIndexer {
 				}
 				indexWriter.close();
 	
-				if(end == null) {
-					end = new Date();
-				}
-				System.out.println(end.getTime() - start.getTime() + " total milliseconds");
 			} else if (ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
 				try {
 					Directory dir;
@@ -458,6 +455,10 @@ public class ReutersIndexer {
 					e.printStackTrace();
 				}
 			}
+			if(end == null) {
+				end = new Date();
+			}
+			System.out.println(end.getTime()/1000 - start.getTime()/1000 + " total milliseconds");
 		} catch (IOException e) {
 			System.err.println("Caught a " + e.getClass() + " with message: " + e.getMessage());
 			e.printStackTrace();
@@ -513,25 +514,37 @@ public class ReutersIndexer {
 		IndexableField titleField = doc.getField("title");
 		String topTitleTerms = "";
 		
+		//termsList = createTermTfPosList1(numDoc, "title", indexReader.directory(), false);
 		List<TermData> termsList = new ArrayList<>();
-		termsList = createTermTfPosList1(numDoc, "title", indexReader.directory(), false);
-//		Terms terms = MultiFields.getTerms(indexReader, "title");
-//		TermsEnum termsEnum = terms.iterator();
-//		while ((termsEnum.next() != null)) {
-//			final String tt = termsEnum.term().utf8ToString();
-//			final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, "title", new Term("title", tt).bytes(), PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
-//			int whereDoc;
-//			
-//			while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-//				if(whereDoc >= numDoc) {
-//					break;
-//				}
-//				postings.nextDoc();
-//			}
-//			if (whereDoc == numDoc) {
-//				termsList.add(new TermData(tt, postings.freq(), termsEnum.docFreq(), null/*,indexReader.numDocs()*/));
-//			}
-//		}
+		Terms terms = indexReader.getTermVector(numDoc, "title");
+		if(terms != null) {
+			TermsEnum termsEnum = terms.iterator();
+			PostingsEnum postings = null;
+			while ((termsEnum.next() != null)) {
+				BytesRef term = termsEnum.term();
+				postings = termsEnum.postings(postings, PostingsEnum.ALL);
+				postings.nextDoc();
+				termsList.add(new TermData(term.utf8ToString(), (int)termsEnum.totalTermFreq(), indexReader.docFreq(new Term("title", term)), null/*, indexReader.numDocs()*/));
+			}
+		} else {
+			terms = MultiFields.getTerms(indexReader, "title");
+			TermsEnum termsEnum = terms.iterator();
+			while ((termsEnum.next() != null)) {
+				final String tt = termsEnum.term().utf8ToString();
+				final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, "title", new Term("title", tt).bytes(), PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
+				int whereDoc;
+				
+				while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+					if(whereDoc >= numDoc) {
+						break;
+					}
+					postings.nextDoc();
+				}
+				if (whereDoc == numDoc) {
+					termsList.add(new TermData(tt, postings.freq(), termsEnum.docFreq(), null/*,indexReader.numDocs()*/));
+				}
+			}
+		}
 		if ((titleField != null) && (!titleField.stringValue().isEmpty()) && (!termsList.isEmpty())) {
 	
 			String titleQuery = " "; // = bestTerms(titleField.stringValue(),indexReader);
