@@ -7,12 +7,14 @@ public class TermData implements Comparable<TermData>{
     private int frequency;
     private int docFrequency;
     private List<Integer> positions;
+//    private int totalNumDocs;
 
-    public TermData(String name, int frequency, int docFrequency, List<Integer> positions) {
+    public TermData(String name, int frequency, int docFrequency, List<Integer> positions/*, int totalNumDocs*/) {
         this.name = name;
         this.frequency = frequency;
         this.docFrequency = docFrequency;
         this.positions = positions;
+//        this.totalNumDocs = totalNumDocs;
     }
 
     public String getName() {
@@ -47,6 +49,22 @@ public class TermData implements Comparable<TermData>{
         this.positions = positions;
     }
 
+    public float getIdf() {
+    	return ((float)1/this.docFrequency);
+    }
+    
+    public float getTfPerIdf() {
+    	return (float) this.frequency*((float)1/this.docFrequency);
+    }
+    
+//    public void setTotalNumDocs(int totalNumDocs) {
+//    	this.totalNumDocs = totalNumDocs;
+//    }
+//    
+//    public int getTotalNumDocs() {
+//    	return this.totalNumDocs;
+//    }
+    
     @Override
     public int compareTo(TermData o) {
         return this.name.compareTo(o.getName());
@@ -58,6 +76,11 @@ public class TermData implements Comparable<TermData>{
 
     public int compareByDocFreq(TermData o) {
         return o.getDocFrequency()-this.docFrequency;
+    }
+    
+    public int compareByTfPerIdf(TermData o) {
+    	return new Float((float)o.getFrequency()*((float)1/o.getDocFrequency())).compareTo((float)this.frequency*((float)1/this.docFrequency));
+        //return (o.getFrequency()*(o.getTotalNumDocs()/o.getDocFrequency()))-(this.frequency*(this.totalNumDocs/this.docFrequency));
     }
     
     @Override

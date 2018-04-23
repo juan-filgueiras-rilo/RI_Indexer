@@ -16,6 +16,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,6 @@ import org.apache.lucene.document.DateTools.Resolution;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
-import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.CorruptIndexException;
@@ -43,7 +43,6 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.index.IndexableFieldType;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -86,7 +85,8 @@ public class ReutersIndexer {
 	private enum Ord {
 		ALF,
 		TF_DEC,
-		DF_DEC;
+		DF_DEC,
+		TF_IDF_DEC;
 	}
 	private static IndexOperation OP = IndexOperation.NONE;
 	private static boolean setOpIfNone(IndexOperation op) {
@@ -270,13 +270,16 @@ public class ReutersIndexer {
 					switch(Integer.parseInt(args[i+3])) {
 					case(0):
 						ord = Ord.ALF;
-					break;
+						break;
 					case(1):
 						ord = Ord.TF_DEC;
-					break;
+						break;
 					case(2):
 						ord = Ord.DF_DEC;
-					break;
+						break;
+					case(3):
+						ord = Ord.TF_IDF_DEC;
+						break;
 					default: System.err.println("Wrong option -termstfpos1 <ord>.\n ");
 						System.exit(-1);
 					}
@@ -296,13 +299,16 @@ public class ReutersIndexer {
 					switch(Integer.parseInt(args[++i])) {
 					case(0):
 						ord = Ord.ALF;
-					break;
+						break;
 					case(1):
 						ord = Ord.TF_DEC;
-					break;
+						break;
 					case(2):
 						ord = Ord.DF_DEC;
-					break;
+						break;
+					case(3):
+						ord = Ord.TF_IDF_DEC;
+						break;
 					default: System.err.println("Wrong option -termstfpos2 <ord>.\n ");
 						System.exit(-1);
 					}
@@ -379,7 +385,6 @@ public class ReutersIndexer {
 				System.out.println(end.getTime() - start.getTime() + " total milliseconds");
 			} else if (ReutersIndexer.OP.equals(IndexOperation.PROCESS)) {
 				try {
-					
 					Directory dir;
 					dir = FSDirectory.open(Paths.get(indexPath));
 					
@@ -396,7 +401,7 @@ public class ReutersIndexer {
 						createTfPosList(fieldName, termName, dir);
 					}
 					if(termstfpos1) {
-						List<TermData> termsList1 = createTermTfPosList1(docID, fieldName, dir);
+						List<TermData> termsList1 = createTermTfPosList1(docID, fieldName, dir, true);
 						switch (ord) {
 							case ALF:
 								break;
@@ -406,8 +411,17 @@ public class ReutersIndexer {
 							case TF_DEC:
 								termsList1.sort(TermData::compareByTermFreq);
 								break;
+							case TF_IDF_DEC:
+								termsList1.sort(TermData::compareByTfPerIdf);
+								break;
 						}
+						int count = 5;
 						for(TermData t: termsList1) {
+							if(ord.equals(Ord.TF_IDF_DEC)) {
+								count--;
+							}
+							if (count == 0) 
+								break;
 							System.out.println(t.toString());
 							System.out.println("-----------------------------------------");
 						}
@@ -423,6 +437,9 @@ public class ReutersIndexer {
 							case TF_DEC:
 								termsList2.sort(TermData::compareByTermFreq);
 								break;
+							case TF_IDF_DEC:
+								termsList2.sort(TermData::compareByTfPerIdf);
+								break;	
 						}
 						for(TermData t: termsList2) {
 							System.out.println(t.toString());
@@ -445,6 +462,130 @@ public class ReutersIndexer {
 			System.err.println("Caught a " + e.getClass() + " with message: " + e.getMessage());
 			e.printStackTrace();
 		}
+	}
+	
+	private static void newSummarize(int numDoc, DirectoryReader indexReader, IndexWriter mainWriter) throws IOException {
+
+		Directory RAMDir = new RAMDirectory();
+		Analyzer subAnalyzer = new StandardAnalyzer();
+		IndexWriterConfig subIwc = new IndexWriterConfig(subAnalyzer);
+		IndexWriter subWriter = new IndexWriter(RAMDir, subIwc);
+
+		Document doc = indexReader.document(numDoc);
+		Document toAddDoc = new Document();
+
+		List <IndexableField> fields = doc.getFields();
+		for(IndexableField field: fields) {
+			String content = field.stringValue();
+			Field newField;
+			if(field.name().equals("path") || field.name().equals("dateline")) {
+				newField = new StringField(field.name(), content, Field.Store.YES);
+			} else if (field.name().equals("topics") || field.name().equals("title") || field.name().equals("oldid") || field.name().equals("newid")) {
+				newField = new TextField(field.name(), content, Field.Store.YES);
+			} else {
+				newField = new Field(field.name(), content, ReutersIndexer.getCustomFieldType());
+			}
+			
+			toAddDoc.add(newField);
+		}
+		
+		Field thread = new StringField("thread", Thread.currentThread().getName(), Field.Store.NO);
+		toAddDoc.add(thread);
+		
+		Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
+		toAddDoc.add(hostname);
+		
+		IndexableField body = doc.getField("body");
+		String[] sentences = body.stringValue().split("\\.");
+		int sno = 0;
+
+		for (String s : sentences) {
+			Document tempDoc = new Document();
+			tempDoc.add(new TextField("sentence", s + ". ", Field.Store.YES));
+			subWriter.addDocument(tempDoc);
+			sno++;
+		}
+
+		QueryParser parser = new QueryParser("sentence", new StandardAnalyzer());
+
+		int n = sno;
+		String summary = "";
+		IndexableField titleField = doc.getField("title");
+		String topTitleTerms = "";
+		
+		List<TermData> termsList = new ArrayList<>();
+		termsList = createTermTfPosList1(numDoc, "title", indexReader.directory(), false);
+//		Terms terms = MultiFields.getTerms(indexReader, "title");
+//		TermsEnum termsEnum = terms.iterator();
+//		while ((termsEnum.next() != null)) {
+//			final String tt = termsEnum.term().utf8ToString();
+//			final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, "title", new Term("title", tt).bytes(), PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
+//			int whereDoc;
+//			
+//			while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+//				if(whereDoc >= numDoc) {
+//					break;
+//				}
+//				postings.nextDoc();
+//			}
+//			if (whereDoc == numDoc) {
+//				termsList.add(new TermData(tt, postings.freq(), termsEnum.docFreq(), null/*,indexReader.numDocs()*/));
+//			}
+//		}
+		if ((titleField != null) && (!titleField.stringValue().isEmpty()) && (!termsList.isEmpty())) {
+	
+			String titleQuery = " "; // = bestTerms(titleField.stringValue(),indexReader);
+			topTitleTerms = "Top 10 title terms: \n";
+			//Obtener tres mejores terminos titulo por tfxidf.			
+			//termsList = createTermTfPosList1(numDoc, "title", indexReader.directory());
+			termsList.sort(TermData::compareByTfPerIdf);
+			int count = 10;
+			for (TermData term : termsList) {
+				if (count > 7)
+					titleQuery += term.getName() + " ";
+				topTitleTerms += "Term : " + term.getName() + " | tf: " + term.getFrequency() + " | idf: " + term.getIdf() + " | tfxidf: " + term.getTfPerIdf() + "\n";
+				count--;
+				if (count == 0)
+					break;
+			}
+			//Query con tres mejores terminos titulo
+			Query q = parser.createPhraseQuery("sentence", titleQuery);
+			DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
+			IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
+			if (sno >= 3) {
+				n = 3;
+			}
+			TopDocs td = indexSearcher.search(q, n);
+			ScoreDoc[] sd = td.scoreDocs;
+
+			for (ScoreDoc d : sd) {
+				Document dd = subIndexReader.document(d.doc);
+				summary += dd.getField("sentence").stringValue();
+			}
+			if (sd.length == 0) {
+				//3 primeras frases body
+				for (int i = 0; i < sno; i++) {
+					if (i == 3) break;
+					summary += sentences[i];
+				}
+			}
+		} else {
+			//3 primeras frases body
+			for (int i = 0; i < sno; i++) {
+				if (i == 3) break;
+				summary += sentences[i];
+			}
+		}
+		Field summaryField = new TextField("summary", summary, Field.Store.YES);
+		
+		//Mejores terminos TOP 10
+
+		Field topTermsField = new TextField("topterms", topTitleTerms, Field.Store.YES);
+		
+		toAddDoc.add(summaryField);
+		toAddDoc.add(topTermsField);
+		mainWriter.addDocument(toAddDoc);
+		subWriter.close();
 	}
 	
 	private static void summarize(int numDoc, DirectoryReader indexReader, IndexWriter mainWriter) throws IOException {
@@ -504,7 +645,7 @@ public class ReutersIndexer {
 
 		if ((titleField != null) && (!titleField.stringValue().isEmpty())) {
 
-			Query q = parser.createBooleanQuery("sentence", titleField.stringValue());
+			Query q = parser.createPhraseQuery("sentence", titleField.stringValue());
 			DirectoryReader subIndexReader = DirectoryReader.open(subWriter);
 			IndexSearcher indexSearcher = new IndexSearcher(subIndexReader);
 			if (sno >= 2) {
@@ -555,7 +696,7 @@ public class ReutersIndexer {
 		}
 		executor.shutdown();
 		try {
-			executor.awaitTermination(5, TimeUnit.MINUTES);
+			executor.awaitTermination(8, TimeUnit.HOURS);
 		} catch (final InterruptedException e) {
 			e.printStackTrace();
 			System.exit(-2);
@@ -580,7 +721,8 @@ public class ReutersIndexer {
 		
 		for(int numDoc=0; numDoc<indexReader.numDocs(); numDoc++) {
 			System.out.println("Indexing doc. no: " + numDoc);
-			summarize(numDoc, indexReader, mainWriter);
+			//summarize(numDoc, indexReader, mainWriter);
+			newSummarize(numDoc, indexReader, mainWriter);
 		}
 		mainWriter.close();
 	}
@@ -589,7 +731,8 @@ public class ReutersIndexer {
 		
 		for(int numDoc = thread.getThreadNumber(); numDoc < thread.getIndexReader().numDocs(); numDoc+=thread.getNumTotalThreads()) {
 			System.out.println("Indexing doc. no: " + numDoc + " with thread nº" + thread.getThreadNumber());
-			summarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
+			//summarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
+			newSummarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
 		}
 	}
 	
@@ -643,14 +786,14 @@ public class ReutersIndexer {
 			final IndexableField pathField = doc.getField("path");
 			final IndexableField newIDField = doc.getField("newid");
 			if (pathField.stringValue().equals(pathName) && newIDField.stringValue().equals(newID)) {
-				termsList = createTermTfPosList1(docID, fieldName, dir);
+				termsList = createTermTfPosList1(docID, fieldName, dir, true);
 			}
 			
 		}
 		return termsList;
 	}
 	
-	private static List<TermData> createTermTfPosList1(int docID, String fieldName, Directory dir) throws IOException {
+	private static List<TermData> createTermTfPosList1(int docID, String fieldName, Directory dir, boolean show) throws IOException {
 
 		Document doc = null;
 		Terms terms = null;
@@ -682,19 +825,18 @@ public class ReutersIndexer {
 					int pos = postings.nextPosition();
 					positionList.add(pos);
 				}
-				termsList.add(new TermData(term.utf8ToString(),(int)termsEnum.totalTermFreq(),indexReader.docFreq(new Term(fieldName,term)),positionList));
+				termsList.add(new TermData(term.utf8ToString(), (int)termsEnum.totalTermFreq(), indexReader.docFreq(new Term(fieldName,term)), positionList/*, indexReader.numDocs()*/));
 			}
 		} else {
-			
 			terms = MultiFields.getTerms(indexReader, fieldName);
 			TermsEnum termsEnum = terms.iterator();
 			while ((termsEnum.next() != null)) {
 				final String tt = termsEnum.term().utf8ToString();
-				final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, fieldName, new Term(fieldName, tt).bytes(),PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
+				final PostingsEnum postings = MultiFields.getTermPositionsEnum(indexReader, fieldName, new Term(fieldName, tt).bytes(), PostingsEnum.ALL);//(new Term(fieldName, tt), PostingsEnum.ALL);
 				int whereDoc;
 				
 				while((whereDoc = postings.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
-					if(whereDoc == docID) {
+					if(whereDoc >= docID) {
 						break;
 					}
 					postings.nextDoc();
@@ -705,17 +847,19 @@ public class ReutersIndexer {
 						int pos = postings.nextPosition();
 						positionList.add(pos);
 					}
-					termsList.add(new TermData(tt,postings.freq(),termsEnum.docFreq(),positionList));
+					termsList.add(new TermData(tt, postings.freq(), termsEnum.docFreq(), positionList/*,indexReader.numDocs()*/));
 				}
 			}
 		}
-		System.out.println("Document ID nº " + docID + ":");
-		System.out.println("Field: "+ fieldName);
-		System.out.println("Path: " + path.stringValue());
-		System.out.println("OldID: " + oldID.stringValue());
-		System.out.println("NewID: " + newID.stringValue());
-		System.out.println("Terms");
-		System.out.println("-----------------------------------------");
+		if(show) {
+			System.out.println("Document ID nº " + docID + ":");
+			System.out.println("Field: "+ fieldName + "\nTitle: " + doc.getField("title").stringValue());
+			System.out.println("Path: " + path.stringValue());
+			System.out.println("OldID: " + oldID.stringValue());
+			System.out.println("NewID: " + newID.stringValue());
+			System.out.println("Terms");
+			System.out.println("-----------------------------------------");
+		}
 		return termsList;
 	}
 	
@@ -749,6 +893,7 @@ public class ReutersIndexer {
 			System.out.println("Total DocFreq of term '" + termName + "': " + indexReader.docFreq(term));
 		} catch(NullPointerException e) {
 			System.err.println("Term " + termName + " not found!");
+			e.printStackTrace();
 		}
 	}
 	
@@ -768,7 +913,8 @@ public class ReutersIndexer {
 				while ((termsEnum.next() != null)) {
 					final String tt = termsEnum.term().utf8ToString();
 					final long docFreq = termsEnum.docFreq();
-					final float idf = similarity.idf(docFreq, docCount);
+					//final float idf = similarity.idf(docFreq, docCount);
+					final float idf = new Float(Math.log((float)docCount/docFreq));
 					termList.put(tt, idf);
 				}
 				termList = sortByValue(termList);
@@ -823,7 +969,7 @@ public class ReutersIndexer {
 
 			/* Wait up to 1 hour to finish all the previously submitted jobs */
 			try {
-				executor.awaitTermination(5, TimeUnit.MINUTES);
+				executor.awaitTermination(2, TimeUnit.HOURS);
 			} catch (final InterruptedException e) {
 				e.printStackTrace();
 				System.exit(-2);
@@ -906,7 +1052,7 @@ public class ReutersIndexer {
 				Field topics = new TextField("topics", parsedDoc.get(2), Field.Store.YES);
 				doc.add(topics);
 				
-				Field title = new TextField("title", parsedDoc.get(0), Field.Store.YES);
+				Field title = new Field("title", parsedDoc.get(0), t);
 				doc.add(title);
 				
 				Field dateLine = new StringField("dateline", parsedDoc.get(4), Field.Store.YES);
