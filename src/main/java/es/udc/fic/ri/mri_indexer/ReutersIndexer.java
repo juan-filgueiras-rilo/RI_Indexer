@@ -458,7 +458,7 @@ public class ReutersIndexer {
 			if(end == null) {
 				end = new Date();
 			}
-			System.out.println(end.getTime()/1000 - start.getTime()/1000 + " total milliseconds");
+			System.out.println(end.getTime()/1000 - start.getTime()/1000 + " total seconds");
 		} catch (IOException e) {
 			System.err.println("Caught a " + e.getClass() + " with message: " + e.getMessage());
 			e.printStackTrace();
@@ -490,10 +490,10 @@ public class ReutersIndexer {
 			toAddDoc.add(newField);
 		}
 		
-		Field thread = new StringField("thread", Thread.currentThread().getName(), Field.Store.NO);
+		Field thread = new StringField("thread", Thread.currentThread().getName(), Field.Store.YES);
 		toAddDoc.add(thread);
 		
-		Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.NO);
+		Field hostname = new StringField("hostname", System.getProperty("user.name"), Field.Store.YES);
 		toAddDoc.add(hostname);
 		
 		IndexableField body = doc.getField("body");
@@ -593,7 +593,7 @@ public class ReutersIndexer {
 		
 		//Mejores terminos TOP 10
 
-		Field topTermsField = new TextField("topterms", topTitleTerms, Field.Store.YES);
+		Field topTermsField = new StringField("topterms", topTitleTerms, Field.Store.YES);
 		
 		toAddDoc.add(summaryField);
 		toAddDoc.add(topTermsField);
@@ -734,8 +734,8 @@ public class ReutersIndexer {
 		
 		for(int numDoc=0; numDoc<indexReader.numDocs(); numDoc++) {
 			System.out.println("Indexing doc. no: " + numDoc);
-			//summarize(numDoc, indexReader, mainWriter);
-			newSummarize(numDoc, indexReader, mainWriter);
+			summarize(numDoc, indexReader, mainWriter);
+			//newSummarize(numDoc, indexReader, mainWriter);
 		}
 		mainWriter.close();
 	}
@@ -744,8 +744,8 @@ public class ReutersIndexer {
 		
 		for(int numDoc = thread.getThreadNumber(); numDoc < thread.getIndexReader().numDocs(); numDoc+=thread.getNumTotalThreads()) {
 			System.out.println("Indexing doc. no: " + numDoc + " with thread nº" + thread.getThreadNumber());
-			//summarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
-			newSummarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
+			summarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
+			//newSummarize(numDoc, thread.getIndexReader(), thread.getIndexOutWriter());
 		}
 	}
 	
