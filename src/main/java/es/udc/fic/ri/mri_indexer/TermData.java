@@ -89,6 +89,6 @@ public class TermData implements Comparable<TermData>{
     	for(Integer pos: positions) {
     		positionString+=pos.toString() + " ";
     	}
-    	return "Term: " + this.name + "\n" + "Term frequency: " + this.frequency + "\n" + "Term at positions: " + positionString + "\n" + "Term DocFrequency: " + this.docFrequency;
+    	return "Term: " + this.name + "\n" + "Term frequency: " + this.frequency + "\n" + "Term at positions: " + positionString + "\n" + "Term DocFrequency: " + this.docFrequency + "\nTf x idf : " + (float)this.frequency*((float)1/this.docFrequency);
     }
 }
